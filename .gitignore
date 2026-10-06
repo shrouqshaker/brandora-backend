@@ -1,4 +1,6 @@
 # Logs
+src/generated/prisma/
+.storage/
 logs
 *.log
 npm-debug.log*
@@ -147,3 +149,52 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Local unit/integration tests (excluded from this repository's push)
+/jest.config.json
+test/
+tests/
+__tests__/
+integration-tests/
+e2e/
+*.spec.ts
+*.test.ts
+*.spec.js
+*.test.js
+
+# Generated Excel files and local Postman test helper
+*.xlsx
+/create_brandora_postman_test.js
+
+# Local environment/credential files; keep the documented template
+*.env
+.envrc
+!.env.example
+*.pem
+*.key
+.aws/
+.codex/
+
+# Temporary files and editor backups
+tmp/
+temp/
+.tmp/
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+
+# IDE/editor settings
+.vscode/
+.idea/
+.vs/
+*.code-workspace
+
+# OS metadata
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/

@@ -1,0 +1,113 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Business {
+  id                 String              @id @default(uuid()) @db.Uuid
+  name               String              @db.VarChar(200)
+  catalogItems       CatalogItem[]
+  importJobs         ImportJob[]
+  inventoryMovements InventoryMovement[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+}
+
+model CatalogItem {
+  id                 String              @id @default(uuid()) @db.Uuid
+  businessId         String              @db.Uuid
+  business           Business            @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  externalKey        String?             @db.VarChar(200)
+  name               String              @db.VarChar(200)
+  description        String?
+  category           String?             @db.VarChar(200)
+  basePrice          Decimal?            @db.Decimal(12, 2)
+  trackInventory     Boolean             @default(false)
+  stockQuantity      Int?
+  attributes         Json?               @db.JsonB
+  isActive           Boolean             @default(true)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  inventoryMovements InventoryMovement[]
+
+  @@unique([businessId, externalKey])
+  @@index([businessId])
+  @@index([businessId, isActive])
+  @@index([businessId, createdAt])
+}
+
+enum ImportJobStatus {
+  UPLOADED
+  ANALYZING
+  MAPPING_REQUIRED
+  VALIDATING
+  READY
+  IMPORTING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+  CANCELLED
+}
+
+enum ImportSourceType {
+  EXCEL
+}
+
+enum InventoryMovementType {
+  INITIAL_IMPORT
+  IMPORT_UPDATE
+  MANUAL_ADJUSTMENT
+  ORDER_APPROVED
+  ORDER_CANCELLED
+}
+
+model InventoryMovement {
+  id             String                @id @default(uuid()) @db.Uuid
+  businessId     String                @db.Uuid
+  business       Business              @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  catalogItemId  String                @db.Uuid
+  catalogItem    CatalogItem           @relation(fields: [catalogItemId], references: [id], onDelete: Restrict)
+  type           InventoryMovementType
+  quantityBefore Int?
+  quantityAfter  Int
+  quantityDelta  Int
+  referenceType  String?               @db.VarChar(50)
+  referenceId    String?               @db.VarChar(200)
+  createdAt      DateTime              @default(now())
+
+  @@index([businessId, createdAt])
+  @@index([catalogItemId, createdAt])
+  @@index([businessId, referenceType, referenceId])
+}
+
+model ImportJob {
+  id            String           @id @default(uuid()) @db.Uuid
+  businessId    String           @db.Uuid
+  business      Business         @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  status        ImportJobStatus  @default(UPLOADED)
+  sourceType    ImportSourceType @default(EXCEL)
+  fileName      String
+  fileKey       String?
+  sheetName     String?
+  headerRow     Int?
+  mapping       Json?            @db.JsonB
+  errors        Json?            @db.JsonB
+  totalRows     Int              @default(0)
+  validRows     Int              @default(0)
+  invalidRows   Int              @default(0)
+  skippedRows   Int              @default(0)
+  insertedCount Int              @default(0)
+  updatedCount  Int              @default(0)
+  failedCount   Int              @default(0)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([businessId])
+  @@index([businessId, createdAt])
+  @@index([businessId, status])
+}
