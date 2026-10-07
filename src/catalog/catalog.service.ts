@@ -1,4 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
+import { AppHttpException } from '../common/errors/app-http.exception';
+import { ErrorCode } from '../common/errors/error-code';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCatalogItemDto } from './dto/create-catalog-item.dto';
@@ -15,12 +17,20 @@ export class CatalogService {
           businessId: dto.businessId,
           name: dto.name,
           description: dto.description,
-          basePrice: dto.basePrice == null ? null : new Prisma.Decimal(dto.basePrice),
+          basePrice:
+            dto.basePrice == null ? null : new Prisma.Decimal(dto.basePrice),
         },
       });
     } catch (error: unknown) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
-        throw new NotFoundException('Business not found');
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2003'
+      ) {
+        throw new AppHttpException(
+          ErrorCode.BUSINESS_NOT_FOUND,
+          HttpStatus.NOT_FOUND,
+          'Business not found',
+        );
       }
       throw error;
     }

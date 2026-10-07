@@ -11,7 +11,9 @@ export class LocalImportFileStorage extends ImportFileStorage {
 
   constructor(config: ConfigService) {
     super();
-    this.directory = resolve(config.get<string>('IMPORT_STORAGE_DIR') || '.storage/imports');
+    this.directory = resolve(
+      config.get<string>('IMPORT_STORAGE_DIR') || '.storage/imports',
+    );
   }
 
   async save(buffer: Buffer): Promise<string> {
@@ -48,7 +50,11 @@ export class LocalImportFileStorage extends ImportFileStorage {
 
   private pathFor(key: string): string {
     // Only adapter-generated keys are accepted; filenames never become paths.
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.xlsx$/.test(key)) {
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.xlsx$/.test(
+        key,
+      )
+    ) {
       throw new Error('Invalid import file key');
     }
     return join(this.directory, key);

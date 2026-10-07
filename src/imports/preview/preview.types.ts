@@ -2,8 +2,18 @@ import { CatalogItem, Prisma } from '../../generated/prisma/client';
 import { ExcelValue } from '../adapters/excel.adapter';
 import { NormalizedRow } from '../validation/row.types';
 
-export type ExistingCatalogItem = Pick<CatalogItem,
-  'id' | 'businessId' | 'externalKey' | 'name' | 'description' | 'category' | 'basePrice' | 'stockQuantity' | 'attributes'>;
+export type ExistingCatalogItem = Pick<
+  CatalogItem,
+  | 'id'
+  | 'businessId'
+  | 'externalKey'
+  | 'name'
+  | 'description'
+  | 'category'
+  | 'basePrice'
+  | 'stockQuantity'
+  | 'attributes'
+>;
 
 interface PlannedRow {
   rowNumber: number;

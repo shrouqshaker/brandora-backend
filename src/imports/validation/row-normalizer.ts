@@ -7,14 +7,27 @@ import { NormalizedRow, RowError } from './row.types';
 
 @Injectable()
 export class RowNormalizer {
-  normalize(values: ExcelValue[], mapping: SavedColumnMapping[]): { data: NormalizedRow; errors: RowError[] } {
+  normalize(
+    values: ExcelValue[],
+    mapping: SavedColumnMapping[],
+  ): { data: NormalizedRow; errors: RowError[] } {
     const data: NormalizedRow = {};
     const errors: RowError[] = [];
     for (const entry of mapping) {
-      if (entry.type === MappingType.IGNORE || entry.type === MappingType.UNMAPPED) continue;
+      if (
+        entry.type === MappingType.IGNORE ||
+        entry.type === MappingType.UNMAPPED
+      )
+        continue;
       const value = this.trim(values[entry.sourceColumnIndex - 1] ?? null);
-      if (entry.type === MappingType.ATTRIBUTE || entry.type === MappingType.VARIANT_ATTRIBUTE) {
-        const field = entry.type === MappingType.ATTRIBUTE ? 'attributes' : 'variantAttributes';
+      if (
+        entry.type === MappingType.ATTRIBUTE ||
+        entry.type === MappingType.VARIANT_ATTRIBUTE
+      ) {
+        const field =
+          entry.type === MappingType.ATTRIBUTE
+            ? 'attributes'
+            : 'variantAttributes';
         data[field] ??= {};
         data[field]![entry.target!] = value;
         continue;
@@ -39,8 +52,17 @@ export class RowNormalizer {
         data.stockQuantity = null;
         if (text === null) continue;
         const quantity = Number(text);
-        if (!/^\+?\d+$/.test(text) || !Number.isInteger(quantity) || quantity > 2147483647) {
-          errors.push({ field, code: 'INVALID_INTEGER', message: 'Available quantity must be a non-negative integer no greater than 2147483647' });
+        if (
+          !/^\+?\d+$/.test(text) ||
+          !Number.isInteger(quantity) ||
+          quantity > 2147483647
+        ) {
+          errors.push({
+            field,
+            code: 'INVALID_INTEGER',
+            message:
+              'Available quantity must be a non-negative integer no greater than 2147483647',
+          });
           continue;
         }
         data.stockQuantity = quantity;
@@ -56,6 +78,11 @@ export class RowNormalizer {
   }
 
   private priceError(): RowError {
-    return { field: 'basePrice', code: 'INVALID_DECIMAL', message: 'Price must be a non-negative number with at most 2 decimal places and at most 10 integer digits' };
+    return {
+      field: 'basePrice',
+      code: 'INVALID_DECIMAL',
+      message:
+        'Price must be a non-negative number with at most 2 decimal places and at most 10 integer digits',
+    };
   }
 }

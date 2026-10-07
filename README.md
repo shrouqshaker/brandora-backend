@@ -25,11 +25,11 @@ Copy-Item .env.example .env
 
 Edit `.env` with your actual credentials:
 
-| Variable | Purpose |
-| --- | --- |
-| `DATABASE_URL` | Required PostgreSQL URL, e.g. `postgresql://postgres:postgres@localhost:5432/brandora?schema=public`. URL-encode special characters in credentials. |
-| `PORT` | Optional HTTP port; defaults to `3000`. |
-| `IMPORT_STORAGE_DIR` | Optional directory for retained workbooks; defaults to `.storage/imports`, resolved relative to the backend working directory. |
+| Variable             | Purpose                                                                                                                                             |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`       | Required PostgreSQL URL, e.g. `postgresql://postgres:postgres@localhost:5432/brandora?schema=public`. URL-encode special characters in credentials. |
+| `PORT`               | Optional HTTP port; defaults to `3000`.                                                                                                             |
+| `IMPORT_STORAGE_DIR` | Optional directory for retained workbooks; defaults to `.storage/imports`, resolved relative to the backend working directory.                      |
 
 On macOS/Linux use `npm` instead of `npm.cmd` and `cp .env.example .env`.
 
@@ -99,14 +99,118 @@ validation, a read-only import preview/plan, and synchronous import execution.
 The internal Inventory foundation is implemented. Auth, AI, Orders, WhatsApp,
 Analytics, Variants, Images, and Options remain outside this scope.
 
+## API Error Contract
+
+Every HTTP error uses this envelope:
+
+```typescript
+{
+  statusCode: number;
+  code: string;
+  message: string | string[];
+  error: string;
+}
+```
+
+`code` is the stable client/localization contract. Use it for Arabic/English
+messages; do not depend on English `message` text. `message` provides developer
+context and preserves DTO validation details as an array when applicable.
+`error` is the general HTTP category, such as `Bad Request` or `Conflict`.
+
+```json
+{
+  "statusCode": 409,
+  "code": "IMPORT_NOT_READY",
+  "message": "The import job must be READY before execution",
+  "error": "Conflict"
+}
+```
+
+Unexpected server failures return INTERNAL_SERVER_ERROR with the safe message
+`An internal server error occurred`. Known safe failures retain their explicit
+codes/messages. Oversized Excel uploads return HTTP 413 / EXCEL_FILE_TOO_LARGE
+with `The Excel file exceeds the maximum allowed size of 10 MB.`
+
+DTO and UUID-pipe failures use VALIDATION_ERROR. Unknown mapping types rejected
+by DTO validation also use VALIDATION_ERROR; mapping service checks use the
+specific MAPPING_* codes. Framework errors use status-based fallback codes.
+The [complete error-code and existing-message mapping](docs/api-errors.md)
+documents these codes.
+
+Excel row-validation codes such as REQUIRED, INVALID_DECIMAL, INVALID_INTEGER,
+DUPLICATE_EXTERNAL_KEY, and TEXT_TOO_LONG remain a separate contract inside
+successful import responses. Neither those codes nor success response shapes
+are changed by HTTP error formatting.
+
+## Localization ownership
+
+| Content         | Localization owner       | Rule                                                              |
+| --------------- | ------------------------ | ----------------------------------------------------------------- |
+| UI / API errors | Mobile                   | Localize using stable backend error codes.                        |
+| Business data   | No automatic translation | Preserve the owner's original language and content.               |
+| Notifications   | Backend                  | Generate text using the recipient's persisted preferred language. |
+| AI replies      | AI                       | Follow the customer's language and conversational context.        |
+
+### UI / API errors
+
+Backend HTTP errors are not localized. `code` is the stable Mobile localization
+contract; `message` remains English developer/debugging context, and `error`
+remains the English HTTP category. Mobile selects Arabic or English and must not
+depend on exact English message wording. Do not maintain Arabic/English copies
+of API error messages in the backend.
+
+For example, Mobile can display IMPORT_NOT_READY as
+`عملية الاستيراد غير جاهزة للتنفيذ` in Arabic or
+`The import is not ready for execution` in English, independently of the backend
+message `The import job must be READY before execution`.
+
+### Business data
+
+Never automatically translate owner-entered business data. This includes business
+names, catalog item names/descriptions/categories, Excel imported values,
+attributes, FAQ questions/answers, policy titles/content, and any other text
+entered by the owner. Store and return `تيشيرت أسود` in its original language;
+do not translate it to `Black T-Shirt`. Existing documented input normalization
+and validation rules still apply; they do not authorize translation.
+
+Do not add automatic language-specific duplicates such as nameAr/nameEn unless
+a future product requirement explicitly introduces business-managed multilingual
+content. Do not translate stored business data to support AI responses.
+
+### Notifications (future work)
+
+Notification text can be generated by the backend and displayed directly, so
+notification localization belongs to the backend, separately from API errors.
+The future design should persist a recipient's preferredLanguage in their
+profile/preferences, using a Language enum with AR and EN, rather than requiring
+Mobile to send a language on every request.
+
+Future flow: notification event -> backend checks recipient preferredLanguage
+-> generates AR or EN notification text -> persists/sends the notification.
+Do not use the API error localization system for notifications. Do not implement
+notification localization before preference persistence exists.
+
+### AI replies (future work)
+
+AI owns conversational language and wording and should follow the customer's
+language/context: `عندكم مقاس XL؟` receives an Arabic response, while
+`Do you have this in XL?` receives an English response. These replies are separate
+from API error localization. The backend supplies trusted business context/data,
+validates structured AI outputs, and enforces business rules; the AI handles
+response wording and conversational language without altering stored business
+data.
+
+These are architectural ownership rules only. Notifications, language preference
+persistence, and AI features are not implemented in this milestone.
+
 ## Excel analysis milestone
 
 `POST /businesses/:businessId/imports/excel/analyze` accepts multipart form data:
 
-| Field | Type | Required | Purpose |
-| --- | --- | --- | --- |
-| `file` | File | Yes | One `.xlsx` workbook, up to 10 MiB. |
-| `sheetName` | Text | No | Exact sheet name; defaults to the first sheet. |
+| Field       | Type | Required | Purpose                                        |
+| ----------- | ---- | -------- | ---------------------------------------------- |
+| `file`      | File | Yes      | One `.xlsx` workbook, up to 10 MiB.            |
+| `sheetName` | Text | No       | Exact sheet name; defaults to the first sheet. |
 
 The business must already exist. Extension and workbook contents are checked;
 the client-supplied MIME type alone is not trusted. Multer receives the upload
@@ -239,13 +343,13 @@ whitespace; there is no fuzzy matching or AI, and cell values are unchanged.
 Unknown headers remain UNMAPPED. If multiple columns match the same standard
 target, all competing suggestions remain UNMAPPED until the owner chooses.
 
-| Internal target | Display label | English aliases | Arabic aliases |
-| --- | --- | --- | --- |
-| `name` | Product Name | name, item, product, item name, product name, item_name, product_name | الاسم، اسم المنتج، اسم الصنف، اسم السلعة، المنتج |
-| `externalKey` | Product Code / SKU | externalkey, external key, external_key, sku, sku code, product sku, item code, product code, item_code, product_code | كود المنتج، كود الصنف، رمز المنتج، رمز الصنف، كود sku، رمز sku |
-| `description` | Description | description, item description, product description, item_description, product_description | الوصف، وصف، وصف المنتج، وصف الصنف، تفاصيل المنتج |
-| `category` | Category | category, item category, product category, item_category, product_category | الفئة، فئة، التصنيف، تصنيف، فئة المنتج، تصنيف المنتج، قسم المنتج |
-| `basePrice` | Price | baseprice, base price, base_price, price, unit price, sale price, selling price, retail price, sale_price, selling_price | السعر، سعر، سعر المنتج، سعر الصنف، سعر البيع، سعر الوحدة، السعر الأساسي، السعر الاساسي |
+| Internal target | Display label      | English aliases                                                                                                                                 | Arabic aliases                                                                            |
+| --------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `name`          | Product Name       | name, item, product, item name, product name, item_name, product_name                                                                           | الاسم، اسم المنتج، اسم الصنف، اسم السلعة، المنتج                                          |
+| `externalKey`   | Product Code / SKU | externalkey, external key, external_key, sku, sku code, product sku, item code, product code, item_code, product_code                           | كود المنتج، كود الصنف، رمز المنتج، رمز الصنف، كود sku، رمز sku                            |
+| `description`   | Description        | description, item description, product description, item_description, product_description                                                       | الوصف، وصف، وصف المنتج، وصف الصنف، تفاصيل المنتج                                          |
+| `category`      | Category           | category, item category, product category, item_category, product_category                                                                      | الفئة، فئة، التصنيف، تصنيف، فئة المنتج، تصنيف المنتج، قسم المنتج                          |
+| `basePrice`     | Price              | baseprice, base price, base_price, price, unit price, sale price, selling price, retail price, sale_price, selling_price                        | السعر، سعر، سعر المنتج، سعر الصنف، سعر البيع، سعر الوحدة، السعر الأساسي، السعر الاساسي    |
 | `stockQuantity` | Available Quantity | stockquantity, stock quantity, stock_quantity, stock qty, inventory quantity, stock on hand, quantity, qty, available quantity, available stock | الكمية، كمية، الكمية المتاحة، كمية متاحة، كمية الصنف، المخزون، كمية المخزون، رصيد المخزون |
 
 These are exact normalized aliases; punctuation, spelling, and Arabic letter
@@ -277,9 +381,24 @@ Example `200 OK` confirmation response:
   "importId": "e5b31599-e582-4a36-966b-dda8389e2fb0",
   "status": "MAPPING_REQUIRED",
   "mapping": [
-    { "sourceColumn": "Item Name", "sourceColumnIndex": 1, "type": "STANDARD", "target": "name" },
-    { "sourceColumn": "Fabric", "sourceColumnIndex": 2, "type": "ATTRIBUTE", "target": "material" },
-    { "sourceColumn": "Notes", "sourceColumnIndex": 3, "type": "IGNORE", "target": null }
+    {
+      "sourceColumn": "Item Name",
+      "sourceColumnIndex": 1,
+      "type": "STANDARD",
+      "target": "name"
+    },
+    {
+      "sourceColumn": "Fabric",
+      "sourceColumnIndex": 2,
+      "type": "ATTRIBUTE",
+      "target": "material"
+    },
+    {
+      "sourceColumn": "Notes",
+      "sourceColumnIndex": 3,
+      "type": "IGNORE",
+      "target": null
+    }
   ]
 }
 ```
@@ -386,7 +505,12 @@ Example `201 Created` response:
 {
   "importId": "e5b31599-e582-4a36-966b-dda8389e2fb0",
   "status": "READY",
-  "summary": { "totalRows": 3, "validRows": 1, "invalidRows": 1, "skippedRows": 1 },
+  "summary": {
+    "totalRows": 3,
+    "validRows": 1,
+    "invalidRows": 1,
+    "skippedRows": 1
+  },
   "validRows": [
     {
       "rowNumber": 4,
@@ -495,7 +619,11 @@ Example `200 OK` response:
       "rowNumber": 4,
       "action": "INSERT",
       "externalKey": "SKU-001",
-      "data": { "externalKey": "SKU-001", "name": "T-Shirt", "basePrice": "299.99" },
+      "data": {
+        "externalKey": "SKU-001",
+        "name": "T-Shirt",
+        "basePrice": "299.99"
+      },
       "variantAttributes": { "size": "XL" }
     }
   ],
@@ -665,12 +793,22 @@ Example response (row numbers are physical Excel row numbers):
   "importId": "f6bc7287-3285-4e19-a819-459c41f0a138",
   "status": "COMPLETED",
   "summary": {
-    "totalRows": 2, "validRows": 2, "invalidRows": 0, "skippedRows": 0,
-    "insertedCount": 1, "updatedCount": 0, "failedCount": 0, "unchangedCount": 1
+    "totalRows": 2,
+    "validRows": 2,
+    "invalidRows": 0,
+    "skippedRows": 0,
+    "insertedCount": 1,
+    "updatedCount": 0,
+    "failedCount": 0,
+    "unchangedCount": 1
   },
-  "inserted": [{ "rowNumber": 4, "externalKey": "NEW", "catalogItemId": "uuid" }],
+  "inserted": [
+    { "rowNumber": 4, "externalKey": "NEW", "catalogItemId": "uuid" }
+  ],
   "updated": [],
-  "unchanged": [{ "rowNumber": 5, "externalKey": "EXISTING", "catalogItemId": "uuid" }],
+  "unchanged": [
+    { "rowNumber": 5, "externalKey": "EXISTING", "catalogItemId": "uuid" }
+  ],
   "failedRows": [],
   "invalidRows": []
 }
@@ -683,7 +821,8 @@ increment neither insert nor update counters; unchangedCount is response-only.
 ImportJob.errors stores validation errors under `rows`, execution errors under
 `execution` (rowNumber/code/message), and a safe `job` error on system failure.
 On normal completion, validRows equals insertedCount + updatedCount + failedCount
-+ unchangedCount. No schema changes or additional packages are required.
+
+- unchangedCount. No schema changes or additional packages are required.
 
 This MVP runs synchronously without queues or automatic recovery. A process crash
 or database outage can leave a job IMPORTING, and committed catalog changes may
@@ -692,6 +831,11 @@ manual recovery; blindly resetting it to READY can duplicate items without SKUs.
 Automatic retries, resumability, and file retention cleanup are future work.
 
 ## Verification and production build
+
+Use `npm.cmd run format` to format TypeScript, JSON, and Markdown with Prettier
+and the Prisma schema with Prisma's native formatter. `npm.cmd run format:check`
+checks the Prettier-managed files without rewriting them. Generated files, tests,
+local storage, and temporary directories are excluded. ESLint is not configured.
 
 The following commands do not apply migrations or require a database connection:
 

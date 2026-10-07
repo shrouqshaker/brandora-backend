@@ -20,7 +20,13 @@ import { ExecutionService } from './execution.service';
 
 @Module({
   imports: [PrismaModule, InventoryModule],
-  controllers: [ImportsController, MappingController, ValidationController, PreviewController, ExecutionController],
+  controllers: [
+    ImportsController,
+    MappingController,
+    ValidationController,
+    PreviewController,
+    ExecutionController,
+  ],
   providers: [
     ImportsService,
     ExcelAdapter,

@@ -1,11 +1,20 @@
 import { Transform } from 'class-transformer';
-import { IsString, IsUUID, Matches, MaxLength, MinLength, ValidateIf } from 'class-validator';
+import {
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength,
+  MinLength,
+  ValidateIf,
+} from 'class-validator';
 
 export class CreateCatalogItemDto {
   @IsUUID()
   businessId!: string;
 
-  @Transform(({ value }: { value: unknown }) => typeof value === 'string' ? value.trim() : value)
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsString()
   @MinLength(1)
   @MaxLength(200)
@@ -20,7 +29,8 @@ export class CreateCatalogItemDto {
   @ValidateIf((_object, value) => value !== undefined && value !== null)
   @IsString()
   @Matches(/^(0|[1-9]\d{0,9})(\.\d{1,2})?$/, {
-    message: 'basePrice must be a non-negative decimal string with up to 10 integer digits and 2 decimal places',
+    message:
+      'basePrice must be a non-negative decimal string with up to 10 integer digits and 2 decimal places',
   })
   basePrice?: string | null;
 }

@@ -1,5 +1,18 @@
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsEnum, IsInt, IsObject, IsString, Max, MaxLength, Min, ValidateIf, ValidateNested } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsEnum,
+  IsInt,
+  IsObject,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  ValidateIf,
+  ValidateNested,
+} from 'class-validator';
 import { MappingType } from '../mapping-fields';
 
 export class ColumnMappingDto {

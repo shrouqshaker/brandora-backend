@@ -1,7 +1,9 @@
 import { ExcelValue } from '../adapters/excel.adapter';
 import { StandardTarget } from '../mapping-fields';
 
-export type NormalizedRow = Partial<Record<Exclude<StandardTarget, 'stockQuantity'>, string | null>> & {
+export type NormalizedRow = Partial<
+  Record<Exclude<StandardTarget, 'stockQuantity'>, string | null>
+> & {
   stockQuantity?: number | null;
   attributes?: Record<string, ExcelValue>;
   variantAttributes?: Record<string, ExcelValue>;
@@ -19,7 +21,12 @@ export interface InvalidRow {
 }
 
 export interface RowValidationResult {
-  summary: { totalRows: number; validRows: number; invalidRows: number; skippedRows: number };
+  summary: {
+    totalRows: number;
+    validRows: number;
+    invalidRows: number;
+    skippedRows: number;
+  };
   validRows: { rowNumber: number; data: NormalizedRow }[];
   invalidRows: InvalidRow[];
 }

@@ -16,7 +16,9 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
-    "test": "jest --runInBand"
+    "test": "jest --runInBand",
+    "format": "prettier --write \"src/**/*.ts\" \"*.{ts,json,md}\" \"docs/**/*.md\" && prisma format",
+    "format:check": "prettier --check \"src/**/*.ts\" \"*.{ts,json,md}\" \"docs/**/*.md\""
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",
@@ -43,6 +45,7 @@
     "@types/pg": "^8.15.0",
     "@types/supertest": "^6.0.0",
     "jest": "^30.0.0",
+    "prettier": "^3.9.9",
     "prisma": "^7.0.0",
     "supertest": "^7.0.0",
     "ts-jest": "^29.4.0",
