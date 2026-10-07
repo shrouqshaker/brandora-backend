@@ -55,6 +55,19 @@ Excel upload limit. Multiple messages share a code when their semantics match.
 | Catalog item not found in this business                                                                          | `CATALOG_ITEM_NOT_FOUND`             |
 | Stock changed concurrently; retry the operation                                                                  | `INVENTORY_CONFLICT`                 |
 
+Catalog CRUD additions:
+
+| Message                                                               | Code                            |
+| --------------------------------------------------------------------- | ------------------------------- |
+| Catalog item not found                                                | `CATALOG_ITEM_NOT_FOUND`        |
+| A catalog item with this external key already exists in this business | `CATALOG_EXTERNAL_KEY_CONFLICT` |
+| Catalog attributes must be a JSON object or null                      | `CATALOG_ATTRIBUTES_INVALID`    |
+| At least one editable catalog field must be supplied                  | `VALIDATION_ERROR`              |
+
+Catalog attributes shape failures return 400; the existing import merge guard
+still returns 409 with CATALOG_ATTRIBUTES_INVALID for legacy non-object data.
+See [Catalog CRUD examples](catalog-api.md) for endpoint contracts.
+
 Framework fallbacks (no domain-specific exception):
 
 | Condition                                                   | Code                    |

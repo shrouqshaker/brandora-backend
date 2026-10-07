@@ -67,7 +67,16 @@ There is no business HTTP API in this scope.
 }
 ```
 
-`description` is optional. `basePrice` is optional/nullable and, when supplied,
+Create also accepts optional externalKey/category (nullable strings, max 200),
+description (nullable string, max 5,000), attributes (nullable JSON object), and
+isActive (boolean, default true). Arrays/scalar attributes return
+CATALOG_ATTRIBUTES_INVALID. Same-business duplicate non-null external keys
+return 409 CATALOG_EXTERNAL_KEY_CONFLICT; inactive items retain their keys.
+Create and PATCH trim surrounding externalKey whitespace; empty or whitespace-only
+keys become null. On PATCH, this clears the existing key. The trimmed key is limited
+to 200 characters.
+
+`basePrice` is optional/nullable and, when supplied,
 is a non-negative decimal **string**, with at
 most 10 integer digits and 2 decimal places; responses also serialize it as a
 string (trailing zeros may be omitted), or null when no price was supplied.
@@ -78,6 +87,31 @@ Invalid inputs and unknown fields return `400`.
 business's items, newest first. `businessId` is required. `limit` defaults to 20
 and is capped at 100; `offset` defaults to 0 and is capped at 1,000,000. An unknown
 business or empty catalog returns `[]`.
+
+Catalog CRUD endpoints:
+
+| Endpoint                             | Request                                                        | Success                                          |
+| ------------------------------------ | -------------------------------------------------------------- | ------------------------------------------------ |
+| POST /catalog-items                  | Required businessId/name plus optional metadata                | 201 CatalogItem                                  |
+| GET /catalog-items                   | businessId, optional limit/offset                              | 200 CatalogItem array, including inactive items  |
+| GET /catalog-items/:catalogItemId    | Required businessId query UUID                                 | 200 scoped CatalogItem, including inactive items |
+| PATCH /catalog-items/:catalogItemId  | Required businessId body UUID plus at least one editable field | 200 updated CatalogItem                          |
+| DELETE /catalog-items/:catalogItemId | Required businessId query UUID                                 | 200 CatalogItem with isActive=false              |
+
+Get One, PATCH, and DELETE scope by item ID and business ID and return
+CATALOG_ITEM_NOT_FOUND when missing or in another business. DELETE is an
+idempotent soft deactivation; it does not remove the row or inventory history.
+PATCH preserves omitted fields and intentionally clears nullable metadata with
+null. Its attributes object replaces the old object; Excel imports continue to
+merge non-blank attributes and preserve blank values. Explicit isActive=true
+PATCH reactivates an item; imports still do not reactivate automatically.
+
+Catalog rejects stockQuantity, trackInventory, id, createdAt, updatedAt, and
+unknown fields. Catalog CRUD does not change stock or create/delete inventory
+movements; stock mutation remains owned by InventoryService and SCRUM-30.
+
+See [Catalog API examples and per-endpoint errors](docs/catalog-api.md) for the
+complete Mobile request/response contract, field validation, and null semantics.
 
 These endpoints have no authentication and are intended for local foundation
 development. `businessId` is a filter and relation, not an authorization check.
