@@ -50,11 +50,39 @@ Development migrations may need permission to create a shadow database.
 For an existing provisioned deployment database, apply checked-in migrations with
 `npm.cmd run prisma:deploy` instead of the development command.
 
+## Business profile, settings, and working hours
+
+Existing businesses have these APIs (UUID path parameter):
+
+| Resource        | Read                                        | Write                                       |
+| --------------- | ------------------------------------------- | ------------------------------------------- |
+| Profile         | `GET /businesses/:businessId`               | `PATCH /businesses/:businessId`             |
+| Settings        | `GET /businesses/:businessId/settings`      | `PATCH /businesses/:businessId/settings`    |
+| Weekly schedule | `GET /businesses/:businessId/working-hours` | `PUT /businesses/:businessId/working-hours` |
+
+Profile metadata includes name, description, category, phone, and address. PATCH
+preserves omitted fields; null clears nullable metadata. Owner-entered text is not
+translated. Settings defaults are cash accepted, online payment disabled, delivery
+disabled, and pickup enabled. GET returns defaults without inserting a settings
+row. These flags configure preferences only; payment and delivery integrations are
+not implemented.
+
+Working hours initially return `[]`. PUT accepts exactly seven distinct weekdays,
+returned Monday through Sunday. Open days require `HH:mm` times with closing later
+than opening. Closed days omit times or send null. Times are nullable strings;
+overnight hours and timezone conversion are unsupported. The weekly upsert is
+atomic and business scoped.
+
+The forward migration is
+`20261009125310_add_business_profile_settings_working_hours`. See
+[Business API](docs/business-api.md) for payloads, responses, and validation rules.
+
 ## Catalog API
 
 Create a `Business` record first using `npm.cmd run prisma:studio`. Supply a name;
 Prisma supplies its UUID and timestamps. Copy that UUID for API requests.
-There is no business HTTP API in this scope.
+Business creation still uses Prisma Studio; existing profiles can be read and
+updated through the [Business API](docs/business-api.md).
 
 `POST /catalog-items` accepts:
 
@@ -108,7 +136,8 @@ PATCH reactivates an item; imports still do not reactivate automatically.
 
 Catalog rejects stockQuantity, trackInventory, id, createdAt, updatedAt, and
 unknown fields. Catalog CRUD does not change stock or create/delete inventory
-movements; stock mutation remains owned by InventoryService and SCRUM-30.
+movements; stock mutation remains owned by InventoryService. See
+[Inventory API](docs/inventory-api.md) for manual adjustment and movement history.
 
 See [Catalog API examples and per-endpoint errors](docs/catalog-api.md) for the
 complete Mobile request/response contract, field validation, and null semantics.
@@ -282,6 +311,10 @@ The detector searches the first 50 rows, skipping blank rows and preferring the
 first row with at least two textual cells; it falls back to the first non-empty
 row. This is a simple heuristic, so unusual titles/layouts can be misidentified.
 `headerRow` and sample `rowNumber` values are one-based Excel row numbers.
+Analyze accepts optional `sheetName`; omitting it selects the first worksheet.
+To choose another sheet, start a new Analyze request and upload the file again
+with that sheetName. The backend automatically detects headerRow and returns it;
+manual headerRow input/override is not supported in this MVP.
 The response contains up to five non-empty rows after the header (fewer when the
 sheet contains fewer rows). Values align positionally with `headers`, preserving
 blank/duplicate headers. Dates are ISO strings; formulas use stored results and
@@ -471,6 +504,30 @@ storage keys or filesystem paths. GET and PATCH never expose `fileKey`.
 In Postman, reuse the `importJobId` from analysis for GET, then PATCH the same
 URL with **Body -> raw -> JSON** and the confirmed mapping. GET again to inspect
 the saved mapping. No multipart body is needed for these endpoints.
+Mapping can only be read/edited while MAPPING_REQUIRED. Once validation starts
+(VALIDATING / READY), mapping is locked. To change mapping or correct the source
+file, start a new Analyze/import job; there is no reset or remapping endpoint.
+
+## Import job status and history
+
+- `GET /imports/:importId` returns the compact job status and full-import counters,
+  including execution results. Use it after app restart or a network timeout.
+- `GET /businesses/:businessId/imports?limit=20&offset=0` returns a business-scoped
+  envelope `{ pagination, items }`, newest createdAt first with id descending as a tie-break. Default limit
+  is 20, maximum 100; offset defaults to 0. An existing business with no jobs
+  returns an empty items array and totalCount=0; an unknown business returns `404 BUSINESS_NOT_FOUND`.
+
+Status and history items contain only id, businessId, status, fileName, sheetName, headerRow, totalRows,
+validRows, invalidRows, skippedRows, insertedCount, updatedCount, failedCount,
+createdAt, and updatedAt. No fileKey, mapping, stored errors, or storage path is
+exposed. Unknown imports return `404 IMPORT_JOB_NOT_FOUND`; invalid UUIDs/query
+values return `400 VALIDATION_ERROR`. See [Import API contracts](docs/imports-api.md)
+for complete samples and Mobile pagination rules.
+
+Mobile flow: Analyze -> Mapping -> POST Validate once -> GET Validation Results
+pages -> GET Preview pages -> Execute -> GET Status to resume -> GET History later.
+History uses database count for totalCount across all jobs in the business;
+pagination includes limit, offset, totalCount, hasMore, and nextOffset.
 
 ## Excel normalization and row validation
 
@@ -478,6 +535,9 @@ Send `POST /imports/:importId/validate` with no file or JSON body, after mapping
 confirmation. Validation reads the retained workbook and persisted sheet/header
 row and mapping. It processes all data rows, rather than only analysis samples.
 No CatalogItem writes, preview/planning, or import execution occur.
+POST returns only importId, status, and the full summary. It is a one-time
+transition, not a paginated reader, and does not use limit/offset. Browse persisted
+results using `GET /imports/:importId/validation-results?limit=50&offset=0`.
 
 The endpoint requires MAPPING_REQUIRED and a non-empty confirmed mapping, then
 atomically claims the job as VALIDATING. It reloads the latest mapping after
@@ -544,47 +604,47 @@ Example `201 Created` response:
     "validRows": 1,
     "invalidRows": 1,
     "skippedRows": 1
-  },
-  "validRows": [
-    {
-      "rowNumber": 4,
-      "data": {
-        "externalKey": "SKU-001",
-        "name": "T-Shirt",
-        "description": null,
-        "basePrice": "299.99",
-        "stockQuantity": 10,
-        "attributes": { "material": "Cotton" },
-        "variantAttributes": { "size": "XL" }
-      }
-    }
-  ],
-  "invalidRows": [
-    {
-      "rowNumber": 6,
-      "errors": [
-        {
-          "field": "basePrice",
-          "code": "INVALID_DECIMAL",
-          "message": "Price must be a non-negative number with at most 2 decimal places and at most 10 integer digits"
-        }
-      ]
-    }
-  ]
+  }
 }
 ```
 
-The response's omitted category field means category was not mapped; explicit
-`description: null` means it was mapped but blank, so later updates must preserve
-the existing description. The mapping remains saved unchanged.
-
 ImportJob stores the four summary counters and JSONB errors as
-`{ summary, rows: invalidRows }`. It does not store the valid normalized dataset.
-Preview rebuilds that dataset from the retained workbook + confirmed mapping
-using the same row normalizer/validator. Storage keys are never returned.
-Variant attributes remain metadata only; no Variant models or records exist.
+`{ summary, rows: invalidRows }`. Before setting READY, validation persists an
+immutable, versioned JSON snapshot of the full summary, normalized validRows,
+and invalidRows beside the retained workbook through ImportFileStorage. The
+existing ImportJob.fileKey locates this sidecar; no migration is needed and
+normalized valid rows are not duplicated into PostgreSQL.
 
-Processing is synchronous and returns all valid rows/error details for the MVP.
+## Browse validation results
+
+`GET /imports/:importId/validation-results?limit=50&offset=0` returns 200 with
+importId, current status, original global summary, pagination, validRows, and
+invalidRows. It reads the stored snapshot without reopening Excel, revalidating,
+querying Catalog, or mutating job state. Results remain unchanged by catalog
+edits, application restart, or execution replacing job errors/counters.
+
+The snapshot is readable in READY, IMPORTING, COMPLETED, COMPLETED_WITH_ERRORS,
+and FAILED/CANCELLED when validation previously succeeded. Before validation,
+a failed validation, or a missing snapshot (including older READY jobs) returns
+`409 IMPORT_VALIDATION_RESULTS_UNAVAILABLE`. Corrupt snapshots/read failures
+return a safe 500. There is no automatic backfill for older jobs.
+
+limit defaults to 50 and must be an integer 1..100; offset defaults to 0 and must
+be a non-negative safe integer. Combine valid and invalid rows in Excel rowNumber
+order, page once, then split into the two arrays. Skipped rows have no page
+position. Summary counts are global even if errors are outside the current page.
+Pagination contains limit, offset, totalCount=validRows+invalidRows, hasMore,
+and nextOffset (null on the final or an out-of-range page). Invalid UUIDs/query
+values return `400 VALIDATION_ERROR`; missing jobs return `404 IMPORT_JOB_NOT_FOUND`.
+
+Snapshots use the same private IMPORT_STORAGE_DIR as uploads, survive restarts,
+and must be retained together with their workbook. The storage abstraction also
+supports a future object storage implementation. No automatic expiry is added;
+a crash between saving a snapshot and updating the job can leave an orphan.
+Reader pagination currently loads the JSON snapshot in memory; it reduces the
+response payload, not storage reads/memory. Full examples are in
+[Import API contracts](docs/imports-api.md).
+
 There is no background worker, retry/reset endpoint, or automatic recovery of
 VALIDATING jobs after a process crash. If PostgreSQL is unavailable when a failure
 occurs, marking FAILED may also fail; that error is logged and the job may remain
@@ -593,6 +653,15 @@ VALIDATING until recovery. No recovery stage is implemented here.
 ## Excel preview / import planning
 
 Send `GET /imports/:importId/preview` with no body after validation has completed.
+Optional query parameters are `limit` (default 50, maximum 100) and `offset`
+(default 0), with the same integer validation as validation-results. All rows are validated
+and planned against the current catalog before pagination. Summary counts are
+global. Page the combined inserts/updates/unchanged/invalidRows ordered by Excel
+rowNumber, excluding skipped rows, then split the page into those four arrays.
+Pagination includes totalCount=validRows+invalidRows, hasMore, and nextOffset;
+nextOffset is null when no further rows exist. The combined arrays contain at
+most limit rows; offset is not per array or a
+physical worksheet row. Invalid pagination returns `400 VALIDATION_ERROR`.
 Only READY jobs can be previewed. The endpoint reopens the retained workbook,
 uses the saved sheet/header row and complete confirmed mapping, and reuses the
 row normalizer/validator. It does not use the five analysis samples or a cached
@@ -648,6 +717,13 @@ Example `200 OK` response:
     "willUpdate": 1,
     "unchanged": 1
   },
+  "pagination": {
+    "limit": 50,
+    "offset": 0,
+    "totalCount": 4,
+    "hasMore": false,
+    "nextOffset": null
+  },
   "inserts": [
     {
       "rowNumber": 4,
@@ -699,6 +775,9 @@ Example `200 OK` response:
 `willInsert + willUpdate + unchanged` equals validRows. Row numbers remain Excel
 row positions. Invalid row errors are rebuilt through the same validator, not
 converted to operations. Storage keys are never returned.
+This example fits on one page: all three valid actions and the one invalid row
+are shown. With smaller pages, arrays may be empty despite positive summary
+counts. Later page examples are in [Import API contracts](docs/imports-api.md).
 
 Preview performs no writes, deletes, or file cleanup and does not change job
 status/counters/errors. It stays READY, including when preview fails. Missing jobs
@@ -714,11 +793,11 @@ The plan is advisory and is not persisted or locked: catalog changes after a
 preview can change the plan. Execution rechecks identity and changes inside each
 row transaction. Preview itself performs no writes.
 
-## Inventory foundation
+## Inventory API and foundation
 
-`InventoryModule` exports `InventoryService` for internal callers. It exposes no
-manual inventory HTTP endpoint and does not implement Orders,
-variants, queues, or background workers. The `InventoryMovement` model links
+`InventoryModule` exports `InventoryService` for internal callers and exposes
+business-scoped manual adjustment and movement history. It does not implement
+Orders, variants, queues, or background workers. The `InventoryMovement` model links
 Business and CatalogItem and records movement type, stock before/after/delta,
 optional reference type/ID, and creation time. Delete restrictions preserve audit
 links. Indexes support business/item history and reference searches.
@@ -727,6 +806,37 @@ Movement types are INITIAL_IMPORT, IMPORT_UPDATE, MANUAL_ADJUSTMENT,
 ORDER_APPROVED, and ORDER_CANCELLED. These enum values describe future audit
 sources; they do not implement those workflows. References are optional opaque
 strings rather than relations to Orders or ImportJob.
+
+Public endpoints:
+
+| Method | Route                                                                      | Behavior                                       |
+| ------ | -------------------------------------------------------------------------- | ---------------------------------------------- |
+| POST   | `/businesses/:businessId/catalog-items/:catalogItemId/inventory/adjust`    | Set absolute quantity through InventoryService |
+| GET    | `/businesses/:businessId/catalog-items/:catalogItemId/inventory/movements` | Item movement history                          |
+| GET    | `/businesses/:businessId/inventory/movements`                              | Business-wide movement history                 |
+
+Adjustment accepts only `{ "quantity": 15 }`, an integer from 0 to 2147483647.
+There is no reason/note field in this MVP; supplying one is rejected. Success
+returns 201 with changed, quantityBefore, quantityAfter, quantityDelta, movementId.
+Every actual stock change creates MANUAL_ADJUSTMENT in the same transaction;
+unchanged quantities return changed=false and movementId=null without writes.
+Manual adjustment preserves trackInventory and isActive; it does not enable
+tracking or reactivate inactive items automatically. Unknown stock (null) -> 0
+is initialization and creates an audit with delta=0.
+
+History accepts limit (default 20, integer 1..100) and offset (default 0,
+non-negative safe integer), returning `{ pagination, items }`. Pagination uses
+the shared limit/offset/totalCount/hasMore/nextOffset contract and database count.
+Ordering is createdAt DESC then id DESC. An out-of-range page has empty items,
+global totalCount, hasMore=false, nextOffset=null. Unknown query fields are rejected.
+Movement fields are id, catalogItemId, type, quantityBefore, quantityAfter,
+quantityDelta, referenceType, referenceId, and createdAt.
+
+All path IDs must be UUIDs. Missing/cross-business items return the same
+`404 CATALOG_ITEM_NOT_FOUND`; missing business history returns
+`404 BUSINESS_NOT_FOUND`. DTO/UUID errors return `400 VALIDATION_ERROR`, and
+conditional stock conflicts retain `409 INVENTORY_CONFLICT`. Full requests,
+responses, and Postman instructions are in [Inventory API](docs/inventory-api.md).
 
 Internal operation:
 

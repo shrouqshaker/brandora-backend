@@ -7,6 +7,20 @@ import {
   Prisma,
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { PaginationQueryDto } from '../common/pagination/pagination-query.dto';
+import { createPagination } from '../common/pagination/pagination';
+
+const publicMovementSelect = {
+  id: true,
+  catalogItemId: true,
+  type: true,
+  quantityBefore: true,
+  quantityAfter: true,
+  quantityDelta: true,
+  referenceType: true,
+  referenceId: true,
+  createdAt: true,
+} satisfies Prisma.InventoryMovementSelect;
 
 export interface InventoryReference {
   type: string;
@@ -24,6 +38,59 @@ export interface QuantityChangeResult {
 @Injectable()
 export class InventoryService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async listItemMovements(
+    businessId: string,
+    catalogItemId: string,
+    pagination: PaginationQueryDto,
+  ) {
+    const item = await this.prisma.catalogItem.findFirst({
+      where: { id: catalogItemId, businessId },
+      select: { id: true },
+    });
+    if (!item)
+      throw new AppHttpException(
+        ErrorCode.CATALOG_ITEM_NOT_FOUND,
+        HttpStatus.NOT_FOUND,
+        'Catalog item not found in this business',
+      );
+    return this.listMovements({ businessId, catalogItemId }, pagination);
+  }
+
+  async listBusinessMovements(
+    businessId: string,
+    pagination: PaginationQueryDto,
+  ) {
+    const business = await this.prisma.business.findUnique({
+      where: { id: businessId },
+      select: { id: true },
+    });
+    if (!business)
+      throw new AppHttpException(
+        ErrorCode.BUSINESS_NOT_FOUND,
+        HttpStatus.NOT_FOUND,
+        'Business not found',
+      );
+    return this.listMovements({ businessId }, pagination);
+  }
+
+  private async listMovements(
+    where: { businessId: string; catalogItemId?: string },
+    pagination: PaginationQueryDto,
+  ) {
+    const totalCount = await this.prisma.inventoryMovement.count({ where });
+    const items =
+      pagination.offset >= totalCount
+        ? []
+        : await this.prisma.inventoryMovement.findMany({
+            where,
+            select: publicMovementSelect,
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            take: pagination.limit,
+            skip: pagination.offset,
+          });
+    return { pagination: createPagination(pagination, totalCount), items };
+  }
 
   async setQuantity(
     item: Pick<CatalogItem, 'id' | 'businessId'>,

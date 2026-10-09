@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ExcelAdapter } from './adapters/excel.adapter';
 import { ImportsController } from './imports.controller';
+import { ImportJobsController } from './import-jobs.controller';
 import { ImportsService } from './imports.service';
 import { ImportFileStorage } from './storage/import-file.storage';
 import { LocalImportFileStorage } from './storage/local-import-file.storage';
@@ -22,6 +23,7 @@ import { ExecutionService } from './execution.service';
   imports: [PrismaModule, InventoryModule],
   controllers: [
     ImportsController,
+    ImportJobsController,
     MappingController,
     ValidationController,
     PreviewController,

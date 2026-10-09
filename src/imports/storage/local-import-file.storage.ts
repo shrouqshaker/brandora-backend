@@ -59,4 +59,37 @@ export class LocalImportFileStorage extends ImportFileStorage {
     }
     return join(this.directory, key);
   }
+
+  async saveValidationResult(key: string, buffer: Buffer): Promise<void> {
+    const path = this.validationPathFor(key);
+    await mkdir(this.directory, { recursive: true });
+    const handle = await open(path, 'wx', 0o600);
+    try {
+      await handle.writeFile(buffer);
+      await handle.close();
+    } catch (error: unknown) {
+      try {
+        await handle.close();
+      } finally {
+        await this.deleteValidationResult(key);
+      }
+      throw error;
+    }
+  }
+
+  readValidationResult(key: string): Promise<Buffer> {
+    return readFile(this.validationPathFor(key));
+  }
+
+  async deleteValidationResult(key: string): Promise<void> {
+    try {
+      await unlink(this.validationPathFor(key));
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
+
+  private validationPathFor(key: string): string {
+    return this.pathFor(key).replace(/\.xlsx$/, '.validation.json');
+  }
 }

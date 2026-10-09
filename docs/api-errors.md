@@ -55,6 +55,14 @@ Excel upload limit. Multiple messages share a code when their semantics match.
 | Catalog item not found in this business                                                                          | `CATALOG_ITEM_NOT_FOUND`             |
 | Stock changed concurrently; retry the operation                                                                  | `INVENTORY_CONFLICT`                 |
 
+Validation-results reads:
+
+Validation-results reads return `409 IMPORT_VALIDATION_RESULTS_UNAVAILABLE`
+when validation has not completed successfully or the stored snapshot is missing.
+The English message is `Stored validation results are not available for this import job`.
+Snapshot corruption/read failures return a safe `500 INTERNAL_SERVER_ERROR`.
+History, Preview, and validation-results pagination errors use `VALIDATION_ERROR`.
+
 Catalog CRUD additions:
 
 | Message                                                               | Code                            |

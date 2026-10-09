@@ -7,6 +7,9 @@ import { ExcelAdapter } from './adapters/excel.adapter';
 import { ImportFileStorage } from './storage/import-file.storage';
 import { RowValidator } from './validation/row-validator';
 import { parseSavedMapping } from './validation/saved-mapping';
+import { ImportPaginationDto } from './dto/import-pagination.dto';
+import { importPageRowNumbers, importPagination } from './paginate-import-rows';
+import { RowValidationResult } from './validation/row.types';
 
 @Injectable()
 export class ValidationService {
@@ -18,6 +21,102 @@ export class ValidationService {
     private readonly excel: ExcelAdapter,
     private readonly rows: RowValidator,
   ) {}
+
+  async results(importId: string, pagination: ImportPaginationDto) {
+    const job = await this.prisma.importJob.findUnique({
+      where: { id: importId },
+      select: { status: true, fileKey: true, errors: true },
+    });
+    if (!job)
+      throw new AppHttpException(
+        ErrorCode.IMPORT_JOB_NOT_FOUND,
+        HttpStatus.NOT_FOUND,
+        'Import job not found',
+      );
+    const availableStates: ImportJobStatus[] = [
+      ImportJobStatus.READY,
+      ImportJobStatus.IMPORTING,
+      ImportJobStatus.COMPLETED,
+      ImportJobStatus.COMPLETED_WITH_ERRORS,
+      ImportJobStatus.FAILED,
+      ImportJobStatus.CANCELLED,
+    ];
+    const validationFailed =
+      job.errors &&
+      typeof job.errors === 'object' &&
+      !Array.isArray(job.errors) &&
+      job.errors.code === 'VALIDATION_FAILED';
+    if (
+      !job.fileKey ||
+      !availableStates.includes(job.status) ||
+      validationFailed
+    )
+      this.resultsUnavailable();
+    let result: RowValidationResult;
+    try {
+      const snapshot = JSON.parse(
+        (await this.storage.readValidationResult(job.fileKey!)).toString(
+          'utf8',
+        ),
+      );
+      if (
+        snapshot.version !== 1 ||
+        snapshot.importId !== importId ||
+        !snapshot.result ||
+        !Array.isArray(snapshot.result.validRows) ||
+        !Array.isArray(snapshot.result.invalidRows) ||
+        !snapshot.result.summary
+      )
+        throw new Error('Invalid validation snapshot');
+      result = snapshot.result;
+      const { totalRows, validRows, invalidRows, skippedRows } = result.summary;
+      const positions = [...result.validRows, ...result.invalidRows].map(
+        (row) => row.rowNumber,
+      );
+      if (
+        ![totalRows, validRows, invalidRows, skippedRows].every(
+          (count) => Number.isSafeInteger(count) && count >= 0,
+        ) ||
+        totalRows !== validRows + invalidRows + skippedRows ||
+        validRows !== result.validRows.length ||
+        invalidRows !== result.invalidRows.length ||
+        !positions.every((row) => Number.isSafeInteger(row) && row > 0) ||
+        new Set(positions).size !== positions.length
+      )
+        throw new Error('Inconsistent validation snapshot');
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT')
+        this.resultsUnavailable();
+      throw new AppHttpException(
+        ErrorCode.INTERNAL_SERVER_ERROR,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        'Unable to read stored validation results',
+      );
+    }
+    const page = importPageRowNumbers(
+      [result.validRows, result.invalidRows],
+      pagination,
+    );
+    return {
+      importId,
+      status: job.status,
+      summary: result.summary,
+      pagination: importPagination(
+        pagination,
+        result.validRows.length + result.invalidRows.length,
+      ),
+      validRows: result.validRows.filter((row) => page.has(row.rowNumber)),
+      invalidRows: result.invalidRows.filter((row) => page.has(row.rowNumber)),
+    };
+  }
+
+  private resultsUnavailable(): never {
+    throw new AppHttpException(
+      ErrorCode.IMPORT_VALIDATION_RESULTS_UNAVAILABLE,
+      HttpStatus.CONFLICT,
+      'Stored validation results are not available for this import job',
+    );
+  }
 
   async validate(importId: string) {
     const initial = await this.prisma.importJob.findUnique({
@@ -53,6 +152,7 @@ export class ValidationService {
         'Validation has already started or the job status changed',
       );
 
+    let snapshotKey: string | undefined;
     try {
       // Re-read after claiming: a mapping confirmation may have won immediately
       // before our claim, but cannot change the mapping after VALIDATING begins.
@@ -74,6 +174,11 @@ export class ValidationService {
       );
       const mapping = parseSavedMapping(job.mapping, workbook.headers);
       const result = this.rows.validate(workbook.rows, mapping);
+      await this.storage.saveValidationResult(
+        job.fileKey,
+        Buffer.from(JSON.stringify({ version: 1, importId, result })),
+      );
+      snapshotKey = job.fileKey;
       const completed = await this.prisma.importJob.updateMany({
         where: { id: importId, status: ImportJobStatus.VALIDATING },
         data: {
@@ -90,14 +195,18 @@ export class ValidationService {
       });
       if (completed.count !== 1)
         throw new Error('Validation lifecycle changed before completion');
-      return { importId, status: ImportJobStatus.READY, ...result };
+      return {
+        importId,
+        status: ImportJobStatus.READY,
+        summary: result.summary,
+      };
     } catch (error: unknown) {
       this.logger.error(
         'Import validation failed',
         error instanceof Error ? error.stack : String(error),
       );
       try {
-        await this.prisma.importJob.updateMany({
+        const failed = await this.prisma.importJob.updateMany({
           where: { id: importId, status: ImportJobStatus.VALIDATING },
           data: {
             status: ImportJobStatus.FAILED,
@@ -107,6 +216,8 @@ export class ValidationService {
             },
           },
         });
+        if (failed.count === 1 && snapshotKey)
+          await this.storage.deleteValidationResult(snapshotKey);
       } catch (failureError: unknown) {
         this.logger.error(
           'Unable to persist failed validation status',

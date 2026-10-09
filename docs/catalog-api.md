@@ -159,7 +159,8 @@ P2003 maps to BUSINESS_NOT_FOUND. Unexpected failures use the existing sanitized
 500 INTERNAL_SERVER_ERROR envelope. DTO errors retain useful message arrays.
 
 Catalog never changes stock or tracking and creates/deletes no inventory
-movements. Stock mutation stays with InventoryService / SCRUM-30; CatalogModule
+movements. Stock mutation stays with InventoryService; see [Inventory API](inventory-api.md).
+CatalogModule
 does not import InventoryModule. Deactivation preserves audit links and the SKU.
 
 Excel remains separate: it matches (businessId, externalKey), may update inactive

@@ -9,6 +9,27 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { ExcelAdapter } from './adapters/excel.adapter';
 import { ImportFileStorage } from './storage/import-file.storage';
+import { ImportHistoryPaginationDto } from './dto/import-pagination.dto';
+import { importPagination } from './paginate-import-rows';
+
+// Public status/history contract: never select workbook keys, mapping, or errors.
+const publicJobSelect = {
+  id: true,
+  businessId: true,
+  status: true,
+  fileName: true,
+  sheetName: true,
+  headerRow: true,
+  totalRows: true,
+  validRows: true,
+  invalidRows: true,
+  skippedRows: true,
+  insertedCount: true,
+  updatedCount: true,
+  failedCount: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.ImportJobSelect;
 
 @Injectable()
 export class ImportsService {
@@ -19,6 +40,48 @@ export class ImportsService {
     private readonly excel: ExcelAdapter,
     private readonly storage: ImportFileStorage,
   ) {}
+
+  async getJob(importId: string) {
+    const job = await this.prisma.importJob.findUnique({
+      where: { id: importId },
+      select: publicJobSelect,
+    });
+    if (!job)
+      throw new AppHttpException(
+        ErrorCode.IMPORT_JOB_NOT_FOUND,
+        HttpStatus.NOT_FOUND,
+        'Import job not found',
+      );
+    return job;
+  }
+
+  async listJobs(businessId: string, pagination: ImportHistoryPaginationDto) {
+    const business = await this.prisma.business.findUnique({
+      where: { id: businessId },
+      select: { id: true },
+    });
+    if (!business)
+      throw new AppHttpException(
+        ErrorCode.BUSINESS_NOT_FOUND,
+        HttpStatus.NOT_FOUND,
+        'Business not found',
+      );
+    const totalCount = await this.prisma.importJob.count({
+      where: { businessId },
+    });
+    // Avoid sending an arbitrarily large safe offset to database pagination.
+    const items =
+      pagination.offset >= totalCount
+        ? []
+        : await this.prisma.importJob.findMany({
+            where: { businessId },
+            select: publicJobSelect,
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            take: pagination.limit,
+            skip: pagination.offset,
+          });
+    return { pagination: importPagination(pagination, totalCount), items };
+  }
 
   async analyze(
     businessId: string,

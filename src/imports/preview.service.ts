@@ -10,6 +10,8 @@ import { RowValidationResult } from './validation/row.types';
 import { parseSavedMapping } from './validation/saved-mapping';
 import { ImportPlanner } from './preview/import-planner';
 import { ExistingCatalogItem } from './preview/preview.types';
+import { ImportPaginationDto } from './dto/import-pagination.dto';
+import { importPageRowNumbers, importPagination } from './paginate-import-rows';
 
 @Injectable()
 export class PreviewService {
@@ -21,7 +23,7 @@ export class PreviewService {
     private readonly planner: ImportPlanner,
   ) {}
 
-  async generate(importId: string) {
+  async generate(importId: string, pagination = new ImportPaginationDto()) {
     const job = await this.prisma.importJob.findUnique({
       where: { id: importId },
       select: {
@@ -117,6 +119,10 @@ export class PreviewService {
       validated.validRows,
       existing,
     );
+    const page = importPageRowNumbers(
+      [plan.inserts, plan.updates, plan.unchanged, validated.invalidRows],
+      pagination,
+    );
     return {
       importId: job.id,
       status: ImportJobStatus.READY,
@@ -126,8 +132,16 @@ export class PreviewService {
         willUpdate: plan.updates.length,
         unchanged: plan.unchanged.length,
       },
-      ...plan,
-      invalidRows: validated.invalidRows,
+      pagination: importPagination(
+        pagination,
+        validated.validRows.length + validated.invalidRows.length,
+      ),
+      inserts: plan.inserts.filter((row) => page.has(row.rowNumber)),
+      updates: plan.updates.filter((row) => page.has(row.rowNumber)),
+      unchanged: plan.unchanged.filter((row) => page.has(row.rowNumber)),
+      invalidRows: validated.invalidRows.filter((row) =>
+        page.has(row.rowNumber),
+      ),
     };
   }
 }
