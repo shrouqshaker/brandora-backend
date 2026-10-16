@@ -4,6 +4,7 @@ import { ErrorCode } from '../common/errors/error-code';
 import { PrismaService } from '../prisma/prisma.service';
 import { DayOfWeek, Prisma } from '../generated/prisma/client';
 import { UpdateBusinessDto } from './dto/update-business.dto';
+import { CreateBusinessDto } from './dto/create-business.dto';
 import { UpdateBusinessSettingsDto } from './dto/update-business-settings.dto';
 import { PutWorkingHoursDto } from './dto/put-working-hours.dto';
 
@@ -35,6 +36,20 @@ const weekdays = Object.values(DayOfWeek);
 @Injectable()
 export class BusinessesService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async create(dto: CreateBusinessDto) {
+    return this.prisma.business.create({
+      data: {
+        name: dto.name,
+        description: dto.description,
+        category: dto.category,
+        phone: dto.phone,
+        address: dto.address,
+        settings: { create: settingsDefaults },
+      },
+      select: profileSelect,
+    });
+  }
 
   async get(id: string) {
     const business = await this.prisma.business.findUnique({

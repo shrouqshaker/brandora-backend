@@ -5,23 +5,30 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   Put,
 } from '@nestjs/common';
 import { BusinessesService } from './businesses.service';
+import { CreateBusinessDto } from './dto/create-business.dto';
 import { UpdateBusinessDto } from './dto/update-business.dto';
 import { UpdateBusinessSettingsDto } from './dto/update-business-settings.dto';
 import { PutWorkingHoursDto } from './dto/put-working-hours.dto';
 
-@Controller('businesses/:businessId')
+@Controller('businesses')
 export class BusinessesController {
   constructor(private readonly businesses: BusinessesService) {}
 
-  @Get()
+  @Post()
+  create(@Body() dto: CreateBusinessDto) {
+    return this.businesses.create(dto);
+  }
+
+  @Get(':businessId')
   get(@Param('businessId', new ParseUUIDPipe()) id: string) {
     return this.businesses.get(id);
   }
 
-  @Patch()
+  @Patch(':businessId')
   update(
     @Param('businessId', new ParseUUIDPipe()) id: string,
     @Body() dto: UpdateBusinessDto,
@@ -29,12 +36,12 @@ export class BusinessesController {
     return this.businesses.update(id, dto);
   }
 
-  @Get('settings')
+  @Get(':businessId/settings')
   settings(@Param('businessId', new ParseUUIDPipe()) id: string) {
     return this.businesses.settings(id);
   }
 
-  @Patch('settings')
+  @Patch(':businessId/settings')
   updateSettings(
     @Param('businessId', new ParseUUIDPipe()) id: string,
     @Body() dto: UpdateBusinessSettingsDto,
@@ -42,12 +49,12 @@ export class BusinessesController {
     return this.businesses.updateSettings(id, dto);
   }
 
-  @Get('working-hours')
+  @Get(':businessId/working-hours')
   hours(@Param('businessId', new ParseUUIDPipe()) id: string) {
     return this.businesses.hours(id);
   }
 
-  @Put('working-hours')
+  @Put(':businessId/working-hours')
   putHours(
     @Param('businessId', new ParseUUIDPipe()) id: string,
     @Body() dto: PutWorkingHoursDto,

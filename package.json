@@ -17,6 +17,7 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "test": "jest --runInBand",
+    "test:businesses": "npm run build && node --test verification/businesses.test.cjs",
     "format": "prettier --write \"src/**/*.ts\" \"*.{ts,json,md}\" \"docs/**/*.md\" && prisma format",
     "format:check": "prettier --check \"src/**/*.ts\" \"*.{ts,json,md}\" \"docs/**/*.md\""
   },

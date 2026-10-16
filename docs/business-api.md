@@ -1,9 +1,32 @@
 # Business API
 
-All six endpoints return HTTP 200. Path parameters must be UUIDs. Unknown body
+Creation returns HTTP 201; the six existing endpoints return HTTP 200.
+Path parameters must be UUIDs. Unknown body
 fields are rejected. Errors use the existing Brandora envelope with English
 debugging messages and stable codes for Mobile localization. Auth is not part of
-this milestone. Create the initial business using Prisma Studio.
+this milestone.
+
+## Create a business
+
+`POST /businesses` accepts:
+
+```json
+{
+  "name": "Sample Bakery",
+  "description": "Fresh bread and pastries",
+  "category": "Bakery",
+  "phone": null,
+  "address": null
+}
+```
+
+Name is required, trimmed, and must contain 1–200 characters. The other
+profile fields are optional and nullable, with the limits listed below.
+IDs, timestamps, settings, and working hours cannot be supplied here.
+Creation returns the profile shape below with a generated UUID. The business
+and its default settings are saved atomically using a nested Prisma create.
+Working hours remain empty until set with the existing PUT endpoint.
+This uses existing tables and requires no new migration.
 
 ## Profile
 
