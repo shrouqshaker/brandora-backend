@@ -53,6 +53,10 @@ Excel upload limit. Multiple messages share a code when their semantics match.
 | Unknown inventory movement type                                                                                  | `INVENTORY_MOVEMENT_TYPE_INVALID`    |
 | Reference type must be 1 to 50 characters and reference ID, when supplied, 1 to 200 characters                   | `INVENTORY_REFERENCE_INVALID`        |
 | Catalog item not found in this business                                                                          | `CATALOG_ITEM_NOT_FOUND`             |
+| Customer not found in this business                                                                              | `CUSTOMER_NOT_FOUND`                 |
+| Conversation not found in this business                                                                          | `CONVERSATION_NOT_FOUND`             |
+| phone must be an international number with 8 to 15 digits, e.g. 201000000001                                     | `INVALID_PHONE_NUMBER`               |
+| externalMessageId already belongs to another business                                                            | `EXTERNAL_MESSAGE_ID_CONFLICT`       |
 | Stock changed concurrently; retry the operation                                                                  | `INVENTORY_CONFLICT`                 |
 
 Validation-results reads:
