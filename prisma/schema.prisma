@@ -20,6 +20,8 @@ model Business {
   catalogItems       CatalogItem[]
   importJobs         ImportJob[]
   inventoryMovements InventoryMovement[]
+  customers          Customer[]
+  conversations      Conversation[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 }
@@ -152,4 +154,76 @@ model ImportJob {
   @@index([businessId])
   @@index([businessId, createdAt])
   @@index([businessId, status])
+}
+
+enum ConversationChannel {
+  WHATSAPP
+}
+
+enum ConversationStatus {
+  OPEN
+  CLOSED
+}
+
+enum MessageSenderType {
+  CUSTOMER
+  AI
+  OWNER
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  AUDIO
+  VIDEO
+  DOCUMENT
+  LOCATION
+  OTHER
+}
+
+model Customer {
+  id            String         @id @default(uuid()) @db.Uuid
+  businessId    String         @db.Uuid
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  /// International format, digits only (WhatsApp wa_id style), e.g. 201000000001.
+  phone         String         @db.VarChar(20)
+  name          String?        @db.VarChar(200)
+  conversations Conversation[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@unique([businessId, phone])
+  @@index([businessId, createdAt])
+}
+
+model Conversation {
+  id         String              @id @default(uuid()) @db.Uuid
+  businessId String              @db.Uuid
+  business   Business            @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  customerId String              @db.Uuid
+  customer   Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  channel    ConversationChannel @default(WHATSAPP)
+  status     ConversationStatus  @default(OPEN)
+  messages   Message[]
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  /// MVP: one rolling conversation per customer per channel.
+  @@unique([businessId, customerId, channel])
+  @@index([businessId, updatedAt])
+  @@index([customerId])
+}
+
+model Message {
+  id                String            @id @default(uuid()) @db.Uuid
+  conversationId    String            @db.Uuid
+  conversation      Conversation      @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  senderType        MessageSenderType
+  /// WhatsApp messages[].id (wamid...). Unique so a re-delivered webhook is stored once.
+  externalMessageId String?           @unique @db.VarChar(255)
+  content           String
+  messageType       MessageType       @default(TEXT)
+  createdAt         DateTime          @default(now())
+
+  @@index([conversationId, createdAt])
 }
