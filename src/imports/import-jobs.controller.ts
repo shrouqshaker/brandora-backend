@@ -1,8 +1,10 @@
+import { AuthScope } from '../auth/auth-policy';
 import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { ImportHistoryPaginationDto } from './dto/import-pagination.dto';
 import { ImportsService } from './imports.service';
 
 @Controller()
+@AuthScope('import')
 export class ImportJobsController {
   constructor(private readonly imports: ImportsService) {}
 
@@ -12,6 +14,7 @@ export class ImportJobsController {
   }
 
   @Get('businesses/:businessId/imports')
+  @AuthScope('params')
   list(
     @Param('businessId', new ParseUUIDPipe()) businessId: string,
     @Query() pagination: ImportHistoryPaginationDto,

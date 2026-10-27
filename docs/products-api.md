@@ -2,9 +2,8 @@
 
 These APIs use Task 1's Category, CatalogItem and ProductVariant models. No schema
 or migration changes are required. The legacy `/catalog-items`, Inventory and
-Excel Import APIs are unchanged. `businessId` scoping is not authentication or
-authorization: callers can currently supply business IDs. Authentication remains
-a separate task; do not expose these routes as authenticated tenant access.
+Excel Import resource logic is unchanged. Task 3 requires a Bearer token and
+active OWNER membership on these routes; see [Authentication](auth-api.md).
 
 The lifecycle rules below cover soft deletion and explicit reactivation without
 introducing stock or order workflows.

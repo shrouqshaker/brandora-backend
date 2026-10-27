@@ -4,7 +4,8 @@ Flow: Analyze -> Mapping -> POST Validate once -> GET Validation Results pages
 -> GET Preview pages -> Execute -> GET Status to resume -> GET History later.
 Processing remains synchronous. Errors use stable codes for Mobile localization;
 backend messages remain English. No endpoint exposes fileKey or storage paths.
-Business scoping is a database filter; authentication is not yet implemented.
+Task 3 requires a Bearer token and active OWNER membership, including indirect
+ImportJob routes; see [Authentication](auth-api.md).
 
 ## Shared pagination
 

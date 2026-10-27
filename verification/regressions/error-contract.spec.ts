@@ -10,6 +10,7 @@ import { Test } from '@nestjs/testing';
 import { Workbook } from 'exceljs';
 import request from 'supertest';
 import { AppModule } from '../../src/app.module';
+import { AuthGuard } from '../../src/auth/auth.guard';
 import { AppHttpException } from '../../src/common/errors/app-http.exception';
 import { ErrorCode } from '../../src/common/errors/error-code';
 import { HttpExceptionFilter } from '../../src/common/errors/http-exception.filter';
@@ -99,6 +100,8 @@ describe('Global HTTP error contract (real application modules, mocked persisten
       imports: [AppModule],
       controllers: [ErrorController],
     })
+      .overrideProvider(AuthGuard)
+      .useValue({ canActivate: () => true })
       .overrideProvider(PrismaService)
       .useValue(prisma)
       .overrideProvider(LocalImportFileStorage)

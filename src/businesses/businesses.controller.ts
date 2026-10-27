@@ -7,20 +7,31 @@ import {
   Patch,
   Post,
   Put,
+  Query,
 } from '@nestjs/common';
 import { BusinessesService } from './businesses.service';
 import { CreateBusinessDto } from './dto/create-business.dto';
 import { UpdateBusinessDto } from './dto/update-business.dto';
 import { UpdateBusinessSettingsDto } from './dto/update-business-settings.dto';
 import { PutWorkingHoursDto } from './dto/put-working-hours.dto';
+import { AuthScope, CurrentUser, Identity } from '../auth/auth-policy';
+import { PaginationQueryDto } from '../common/pagination/pagination-query.dto';
 
 @Controller('businesses')
+@AuthScope('params')
 export class BusinessesController {
   constructor(private readonly businesses: BusinessesService) {}
 
   @Post()
-  create(@Body() dto: CreateBusinessDto) {
-    return this.businesses.create(dto);
+  @AuthScope('identity')
+  create(@Body() dto: CreateBusinessDto, @CurrentUser() user: Identity) {
+    return this.businesses.create(dto, user.id);
+  }
+
+  @Get()
+  @AuthScope('identity')
+  list(@CurrentUser() user: Identity, @Query() pagination: PaginationQueryDto) {
+    return this.businesses.list(user.id, pagination);
   }
 
   @Get(':businessId')

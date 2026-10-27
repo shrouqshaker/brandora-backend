@@ -1,3 +1,4 @@
+import { AuthScope } from '../auth/auth-policy';
 import {
   Body,
   Controller,
@@ -17,6 +18,7 @@ import { VariantsService } from './variants.service';
 import { ProductJsonBoundaryInterceptor } from '../products/product-json.interceptor';
 
 @Controller('businesses/:businessId/products/:productId/variants')
+@AuthScope('params')
 @UseInterceptors(ProductJsonBoundaryInterceptor)
 export class VariantsController {
   constructor(private readonly variants: VariantsService) {}

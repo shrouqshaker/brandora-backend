@@ -1,3 +1,4 @@
+import { AuthScope } from '../auth/auth-policy';
 import {
   Body,
   Controller,
@@ -13,6 +14,7 @@ import { AdjustInventoryDto } from './dto/adjust-inventory.dto';
 import { InventoryService } from './inventory.service';
 
 @Controller('businesses/:businessId')
+@AuthScope('params')
 export class InventoryController {
   constructor(private readonly inventory: InventoryService) {}
 

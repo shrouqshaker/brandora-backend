@@ -1,8 +1,8 @@
 # Catalog Item CRUD (SCRUM-28 / API documentation SCRUM-16)
 
 All endpoints scope data by businessId. Item endpoints also require catalogItemId
-as a UUID. There is currently no authentication: business scoping is a database
-filter, not an authorization check. Business text is preserved in its original
+as a UUID. Task 3 requires a Bearer token and current active OWNER membership;
+see [Authentication](auth-api.md). Business text is preserved in its original
 language; surrounding name and externalKey whitespace is trimmed. Blank externalKey
 strings become null, including on PATCH to clear an existing key.
 

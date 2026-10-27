@@ -1,3 +1,4 @@
+import { AuthScope } from '../auth/auth-policy';
 import {
   Body,
   Controller,
@@ -17,6 +18,7 @@ import { CategoryDto } from './dto/category.dto';
 import { ProductJsonBoundaryInterceptor } from '../products/product-json.interceptor';
 
 @Controller('businesses/:businessId/categories')
+@AuthScope('params')
 @UseInterceptors(ProductJsonBoundaryInterceptor)
 export class CategoriesController {
   constructor(private readonly categories: CategoriesService) {}

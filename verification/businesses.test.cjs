@@ -66,7 +66,13 @@ test('Business creation, validation, and existing routes', async (t) => {
       { provide: PrismaService, useValue: prisma },
     ],
   }).compile();
+  prisma.$transaction = async (work) => work(prisma);
   const app = module.createNestApplication({ logger: false });
+  // This isolated controller regression simulates the identity normally set by AuthGuard.
+  app.use((req, _res, next) => {
+    req.user = { id: 'f6bc7287-3285-4e19-a819-459c41f0a138' };
+    next();
+  });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

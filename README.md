@@ -2,8 +2,8 @@
 
 NestJS API for business profiles, categories, products/variants, catalog items,
 Excel imports, and inventory.
-PostgreSQL data access uses Prisma. Authentication, orders, and payment processing
-are not implemented in this version.
+PostgreSQL data access uses Prisma. JWT authentication and multi-business ownership
+are implemented; orders and payment processing remain separate work.
 
 ## Local setup
 
@@ -14,6 +14,8 @@ npm ci
 ```
 
 Copy `.env.example` to `.env` and configure `DATABASE_URL` for PostgreSQL.
+Set a random `JWT_SECRET`, `JWT_ISSUER` and `JWT_AUDIENCE` as described in
+[Authentication](docs/auth-api.md); missing signing configuration prevents startup.
 Keep credentials out of Git. Check an existing database before applying changes:
 
 ```sh
@@ -37,7 +39,8 @@ The default port is 3000. Uploaded files and validation results are stored in
 
 ## Create a business
 
-Send `POST /businesses` with `Content-Type: application/json`:
+Register or log in first, then send `POST /businesses` with
+`Authorization: Bearer <access_token>` and `Content-Type: application/json`:
 
 ```json
 {
@@ -49,7 +52,8 @@ Send `POST /businesses` with `Content-Type: application/json`:
 The response is HTTP 201 with the generated business ID and profile. Default
 settings are persisted together with the business in one nested write. Use that
 ID for the existing profile, settings, working-hours, catalog, imports, and
-inventory routes. No new database migration is needed for this endpoint.
+inventory routes. Apply the additive Auth migration before using authenticated
+Business creation.
 
 ## Verification
 
@@ -62,6 +66,7 @@ These build the application and run maintained HTTP/unit regressions with mocked
 persistence; `test:businesses` runs just the native business suite. For explicit
 local-only database verification, start disposable PostgreSQL on 127.0.0.1:55439
 and run `npm run test:products:postgres` and
+`npm run test:auth:postgres` and `npm run test:auth-hardening:postgres`, plus
 `node prisma/verification/product-foundation.cjs`. They create and retain new local
 databases and never read the production URL. See [verification](verification/README.md).
 
@@ -71,6 +76,7 @@ CommonJS, so compiled application files remain CommonJS.
 ## API documentation
 
 - [Business profiles, settings, and working hours](docs/business-api.md)
+- [Authentication and multi-business ownership](docs/auth-api.md)
 - [Catalog](docs/catalog-api.md)
 - [Categories, Products, and ProductVariants](docs/products-api.md)
 - [Excel imports](docs/imports-api.md)
@@ -79,8 +85,13 @@ CommonJS, so compiled application files remain CommonJS.
 
 ## Current limits
 
-Authentication and business ownership checks are not implemented. Working hours
-do not support overnight opening, holiday exceptions, or timezones. Orders,
+Authentication and active OWNER membership are required for owner APIs;
+see the auth guide for JWT configuration and Android integration.
+Refresh sessions rotate with a 30-day absolute lifetime; password recovery requires
+approved SMTP/App Link configuration. Auth rate limits use shared PostgreSQL.
+Configure verified proxy CIDRs before rollout behind Railway. See
+[security remediation](docs/security-remediation.md) for dependency changes.
+Working hours do not support overnight opening, holiday exceptions, or timezones. Orders,
 payments, stock reservations, images, variant inventory operations, and upgrading
 Excel imports to create variants require separate work. Product/Variant CRUD
 does not implement stock mutation or order availability.

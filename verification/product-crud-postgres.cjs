@@ -28,6 +28,13 @@ async function main() {
   assert.equal(migration.status, 0, migration.stdout + migration.stderr);
   process.env.DATABASE_URL = url;
   process.env.PORT = '3000';
+  process.env.JWT_SECRET = require('node:crypto')
+    .randomBytes(48)
+    .toString('base64');
+  process.env.JWT_ISSUER = 'brandora-test';
+  process.env.JWT_AUDIENCE = 'brandora-test-android';
+  process.env.AUTH_EMAIL_MODE = 'disabled';
+  process.env.AUTH_TRUSTED_PROXY_CIDRS = '';
   process.env.IMPORT_STORAGE_DIR = path.join(
     root,
     '.tmp/task2-integration-imports',
@@ -52,7 +59,21 @@ async function main() {
   app.useGlobalFilters(new HttpExceptionFilter(app.get(HttpAdapterHost)));
   await app.init();
   prisma = app.get(PrismaService);
-  const http = request(app.getHttpServer());
+  const rawHttp = request(app.getHttpServer());
+  const session = await rawHttp
+    .post('/auth/register')
+    .send({ email: 'products@example.com', password: 'ProductsTest123!' })
+    .expect(201);
+  const http = Object.fromEntries(
+    ['get', 'post', 'patch', 'delete', 'put'].map((method) => [
+      method,
+      (route) =>
+        rawHttp[method](route).set(
+          'Authorization',
+          `Bearer ${session.body.accessToken}`,
+        ),
+    ]),
+  );
   async function call(method, route, body, status, code) {
     let operation = http[method](route);
     if (body !== undefined) operation = operation.send(body);
@@ -133,13 +154,7 @@ async function main() {
   assert.equal(categoryPage.pagination.hasMore, true);
   assert.equal(categoryPage.items.length, 1);
   await call('delete', `${categories(a)}/${spare.id}`, undefined, 204);
-  await call(
-    'get',
-    categories(randomUUID()),
-    undefined,
-    404,
-    'BUSINESS_NOT_FOUND',
-  );
+  await call('get', categories(randomUUID()), undefined, 404, 'NOT_FOUND');
 
   for (const body of [{}, { name: ' ' }, { name: 'x', forbidden: true }])
     await call('post', categories(a), body, 400, 'VALIDATION_ERROR');

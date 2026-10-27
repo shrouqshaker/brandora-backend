@@ -1,3 +1,4 @@
+import { AuthScope } from '../auth/auth-policy';
 import {
   Body,
   Controller,
@@ -12,6 +13,7 @@ import { AnalyzeExcelDto } from './dto/analyze-excel.dto';
 import { ImportsService } from './imports.service';
 
 @Controller('businesses/:businessId/imports/excel')
+@AuthScope('params')
 export class ImportsController {
   constructor(private readonly imports: ImportsService) {}
 

@@ -1,3 +1,4 @@
+import { AuthScope } from '../auth/auth-policy';
 import {
   Controller,
   HttpCode,
@@ -8,6 +9,7 @@ import {
 import { ExecutionService } from './execution.service';
 
 @Controller('imports/:importId/execute')
+@AuthScope('import')
 export class ExecutionController {
   constructor(private readonly execution: ExecutionService) {}
 

@@ -1,3 +1,4 @@
+import { AuthScope } from '../auth/auth-policy';
 import {
   Controller,
   Get,
@@ -10,6 +11,7 @@ import { ValidationService } from './validation.service';
 import { ImportPaginationDto } from './dto/import-pagination.dto';
 
 @Controller('imports/:importId')
+@AuthScope('import')
 export class ValidationController {
   constructor(private readonly validation: ValidationService) {}
 

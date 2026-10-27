@@ -1,3 +1,4 @@
+import { AuthScope } from '../auth/auth-policy';
 import {
   Body,
   Controller,
@@ -17,6 +18,7 @@ import { ProductsService } from './products.service';
 import { ProductJsonBoundaryInterceptor } from './product-json.interceptor';
 
 @Controller('businesses/:businessId/products')
+@AuthScope('params')
 @UseInterceptors(ProductJsonBoundaryInterceptor)
 export class ProductsController {
   constructor(private readonly products: ProductsService) {}

@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "license": "UNLICENSED",
+  "overrides": {
+    "@nestjs/platform-express": {
+      "multer": "2.5.0"
+    },
+    "exceljs": {
+      "uuid": "11.1.1"
+    }
+  },
   "engines": {
     "node": ">=22.12.0"
   },
@@ -20,6 +28,8 @@
     "test": "jest --config jest.config.cjs --runInBand",
     "test:businesses": "npm run build && node --test verification/businesses.test.cjs",
     "test:products:postgres": "npm run build && node verification/product-crud-postgres.cjs",
+    "test:auth:postgres": "npm run build && node verification/auth-postgres.cjs",
+    "test:auth-hardening:postgres": "npm run build && node verification/auth-hardening-postgres.cjs",
     "format": "prettier --write \"src/**/*.ts\" \"*.{ts,json,md}\" \"docs/**/*.md\" && prisma format",
     "format:check": "prettier --check \"src/**/*.ts\" \"*.{ts,json,md}\" \"docs/**/*.md\""
   },
@@ -27,15 +37,20 @@
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.0",
+    "@nestjs/jwt": "^11.0.2",
     "@nestjs/platform-express": "^11.0.0",
-    "@prisma/adapter-pg": "^7.0.0",
-    "@prisma/client": "^7.0.0",
+    "@prisma/adapter-pg": "^7.10.1",
+    "@prisma/client": "^7.10.1",
+    "argon2": "^0.45.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "dotenv": "^17.0.0",
     "exceljs": "^4.4.0",
-    "multer": "^2.4.0",
+    "ipaddr.js": "^2.2.0",
+    "multer": "^2.5.0",
+    "nodemailer": "^10.2.1",
     "pg": "^8.16.0",
+    "proxy-addr": "^2.0.8",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },
@@ -45,13 +60,15 @@
     "@types/jest": "^30.0.0",
     "@types/multer": "^2.3.0",
     "@types/node": "^24.19.1",
+    "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.15.0",
+    "@types/proxy-addr": "^2.0.3",
     "@types/supertest": "^6.0.0",
     "jest": "^30.0.0",
     "prettier": "^3.9.9",
-    "prisma": "^7.0.0",
+    "prisma": "^7.10.1",
     "supertest": "^7.0.0",
-    "ts-jest": "^29.4.0",
+    "ts-jest": "^29.4.15",
     "typescript": "^5.9.0"
   }
 }

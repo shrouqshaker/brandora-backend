@@ -7,6 +7,8 @@ import { UpdateBusinessDto } from './dto/update-business.dto';
 import { CreateBusinessDto } from './dto/create-business.dto';
 import { UpdateBusinessSettingsDto } from './dto/update-business-settings.dto';
 import { PutWorkingHoursDto } from './dto/put-working-hours.dto';
+import { PaginationQueryDto } from '../common/pagination/pagination-query.dto';
+import { createPagination } from '../common/pagination/pagination';
 
 const profileSelect = {
   id: true,
@@ -37,18 +39,46 @@ const weekdays = Object.values(DayOfWeek);
 export class BusinessesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(dto: CreateBusinessDto) {
-    return this.prisma.business.create({
-      data: {
-        name: dto.name,
-        description: dto.description,
-        category: dto.category,
-        phone: dto.phone,
-        address: dto.address,
-        settings: { create: settingsDefaults },
+  async create(dto: CreateBusinessDto, userId: string) {
+    return this.prisma.$transaction((tx) =>
+      tx.business.create({
+        data: {
+          name: dto.name,
+          description: dto.description,
+          category: dto.category,
+          phone: dto.phone,
+          address: dto.address,
+          settings: { create: settingsDefaults },
+          memberships: { create: { userId, role: 'OWNER' } },
+        },
+        select: profileSelect,
+      }),
+    );
+  }
+
+  list(userId: string, page: PaginationQueryDto) {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const where = {
+          memberships: {
+            some: { userId, isActive: true, role: 'OWNER' as const },
+          },
+        };
+        const totalCount = await tx.business.count({ where });
+        const items =
+          page.offset >= totalCount
+            ? []
+            : await tx.business.findMany({
+                where,
+                select: profileSelect,
+                orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+                skip: page.offset,
+                take: page.limit,
+              });
+        return { pagination: createPagination(page, totalCount), items };
       },
-      select: profileSelect,
-    });
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
 
   async get(id: string) {

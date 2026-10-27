@@ -1,5 +1,46 @@
 # Maintained regression suite
 
+`controller-route-inventory.spec.cjs` runs automatically in `npm test` after its
+pretest build. It discovers compiled controllers directly under `dist/`, verifies
+every route against the reviewed authorization policy, and restricts public
+routes to the six rate-limited Auth operations. It reads no temporary reports or
+archived code. For a standalone inventory after building, run
+`node verification/controller-route-inventory.cjs`.
+
+`npm run test:auth-hardening:postgres` also uses that maintained inventory to send
+anonymous HTTP requests to all 42 protected endpoints through the real global
+guard. It verifies persistent rate-limit counters by closing the first database
+connection/provider and enforcing the same quota through a fresh replacement.
+These checks use the verifier's newly created random local database, never a
+database name passed from a previous run. Import output uses the OS temporary
+directory; no input or report under `.tmp/` is required. The original concurrent,
+expiry and unavailable-store assertions remain enabled.
+
+Security hardening adds `auth-hardening.spec.ts` for shared-store quotas, proxy
+boundaries, fail-closed behavior, reset validation, SMTP configuration and ExcelJS
+UUID compatibility. The original Auth assertions remain and now use session-backed
+JWT fixtures. Route coverage is 48 endpoints: 42 protected and six public
+credential/token operations. No general business endpoint became public.
+
+`npm run test:auth-hardening:postgres` creates a fresh isolated local database on
+127.0.0.1:55439 and two independent Nest/Prisma instances. It verifies one-use
+refresh/reset races, replay family revocation, immediate access invalidation,
+multiple devices, ten-slot/1,000-history bounds, password replacement, controlled
+email failures/readiness and account-independent responses, real shared limiter
+quotas, expiry, capacity and outage isolation, compressed-request handling and
+migration status/drift. Its reset mailer is controlled in memory and no SMTP
+message is sent. TTL fixtures are advanced only in that new disposable database;
+there is no production bypass or data cleanup. The database is retained.
+
+Task 3 adds `auth.spec.ts` for request validation, JWT verification, deny-by-default
+policies, current membership checks and rate limiting. Existing isolated feature
+tests remain feature regressions; the error-contract harness explicitly simulates
+an authorized guard and the native Business harness supplies a test identity.
+Production has no bypass. The real AppModule and global guard run unmodified in
+`npm run test:auth:postgres`, including all owner route denial pairs, registration,
+multi-business ownership, revocation, rollback and migration drift. Signing keys
+are generated randomly for each test run. No test uses production configuration.
+
 Run `npm test`. Its pretest builds the current application and generates Prisma
 Client. Jest discovers official suites only under this directory: TypeScript
 regressions in `regressions/` and the existing Node business-test adapter.

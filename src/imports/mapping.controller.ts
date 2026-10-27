@@ -1,3 +1,4 @@
+import { AuthScope } from '../auth/auth-policy';
 import {
   Body,
   Controller,
@@ -10,6 +11,7 @@ import { ConfirmMappingDto } from './dto/confirm-mapping.dto';
 import { MappingService } from './mapping.service';
 
 @Controller('imports/:importId/mapping')
+@AuthScope('import')
 export class MappingController {
   constructor(private readonly mapping: MappingService) {}
 

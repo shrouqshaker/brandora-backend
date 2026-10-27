@@ -3,8 +3,10 @@
 Creation returns HTTP 201; the six existing endpoints return HTTP 200.
 Path parameters must be UUIDs. Unknown body
 fields are rejected. Errors use the existing Brandora envelope with English
-debugging messages and stable codes for Mobile localization. Auth is not part of
-this milestone.
+debugging messages and stable codes for Mobile localization. Task 3 requires a
+Bearer token and active OWNER membership; see [Authentication](auth-api.md).
+Creation assigns the authenticated creator as OWNER atomically with settings.
+`GET /businesses` returns the current user's accessible Businesses with pagination.
 
 ## Create a business
 

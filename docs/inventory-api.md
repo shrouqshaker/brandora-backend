@@ -1,8 +1,8 @@
 # Inventory API (SCRUM-30)
 
 Inventory supports absolute quantity adjustment and read-only movement history.
-All path parameters are UUIDs. Business scoping filters data; authentication is
-not implemented in this milestone. Catalog CRUD still rejects stock writes.
+All path parameters are UUIDs. Task 3 requires a Bearer token and current active
+OWNER membership; see [Authentication](auth-api.md). Catalog CRUD still rejects stock writes.
 
 ## Manual adjustment
 

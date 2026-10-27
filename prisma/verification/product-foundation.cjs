@@ -405,6 +405,25 @@ async function main() {
   try {
     await upgrade.connect();
     await verifyForwardUpgrade({ db: upgrade, root, foundation: migration });
+    // The forward probe intentionally builds the Task 1 schema by hand. Apply
+    // subsequent additive migrations before comparing it with today's schema.
+    for (const name of fs
+      .readdirSync(path.join(root, 'prisma/migrations'))
+      .filter(
+        (name) =>
+          name > '20261027010000_unique_variant_option_values' &&
+          fs.existsSync(
+            path.join(root, 'prisma/migrations', name, 'migration.sql'),
+          ),
+      )
+      .sort()) {
+      await upgrade.query(
+        fs.readFileSync(
+          path.join(root, 'prisma/migrations', name, 'migration.sql'),
+          'utf8',
+        ),
+      );
+    }
     targetUrl = `${url}_upgrade`;
     assert.match(
       prisma(
