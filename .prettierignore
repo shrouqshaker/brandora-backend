@@ -16,6 +16,7 @@ e2e/
 *.test.ts
 *.spec.js
 *.test.js
+!verification/regressions/*.spec.ts
 jest.config.json
 *.xlsx
 create_brandora_postman_test.js

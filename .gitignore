@@ -162,6 +162,9 @@ e2e/
 *.spec.js
 *.test.js
 
+# Official maintained regression suites (temporary copies remain ignored).
+!/verification/regressions/*.spec.ts
+
 # Generated Excel files and local Postman test helper
 *.xlsx
 /create_brandora_postman_test.js
@@ -179,6 +182,7 @@ e2e/
 tmp/
 temp/
 .tmp/
+/brandora-author-fix/
 *.tmp
 *.temp
 *.bak
