@@ -17,6 +17,22 @@ error handling; Excel analysis, mapping, row normalization/validation, preview,
 execution, import status/history, storage, and the shared HTTP error contract.
 Business settings and working-hours regressions are included as well.
 
+Task 2 adds `product-policy.spec.ts` (business-defined options, byte bounds, DTOs
+and transaction failures) and `product-crud-http.spec.ts` (new routes, scoped IDs,
+request boundaries and existing error envelopes). These import current source
+directly, and the older regression suites remain enabled.
+
+For real Task 2 database/HTTP checks, run `npm run test:products:postgres` with
+isolated local PostgreSQL on 127.0.0.1:55439. It deploys the checked-in migrations
+to a new disposable database, tests all new CRUD routes and actual competing
+writes, and retains the database.
+Lifecycle checks cover explicit PATCH activation/deactivation, inactive parents,
+stale options, atomic activation conflicts, concurrent reactivation, last-active
+withdrawal and unchanged stock/movement snapshots. Its default-variant rollback
+probe uses a fixture-specific trigger in that database and removes only that trigger/function
+after the assertion. It never runs the maintenance cleanup script or accesses
+Neon. See [Products API](../docs/products-api.md) for the API/lifecycle contract.
+
 The `maintained.spec.cjs` adapter invokes `businesses.test.cjs` through its native
 Node runner. Report its 16 Node tests separately from Jest's adapter test count.
 `npm test` does not execute the separate PostgreSQL verifier; that remains

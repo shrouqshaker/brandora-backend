@@ -19,6 +19,7 @@
     "pretest": "npm run build",
     "test": "jest --config jest.config.cjs --runInBand",
     "test:businesses": "npm run build && node --test verification/businesses.test.cjs",
+    "test:products:postgres": "npm run build && node verification/product-crud-postgres.cjs",
     "format": "prettier --write \"src/**/*.ts\" \"*.{ts,json,md}\" \"docs/**/*.md\" && prisma format",
     "format:check": "prettier --check \"src/**/*.ts\" \"*.{ts,json,md}\" \"docs/**/*.md\""
   },
