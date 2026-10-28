@@ -156,8 +156,9 @@ consumed, superseded and invalid tokens return 400 AUTH_RESET_INVALID. Login wit
 the new password is required afterward. Password/ownership data is never reset
 or reassigned by any other endpoint.
 
-Email is disabled by default. Set the following only after configuring approved
-transactional SMTP credentials and a verified sending domain:
+Email is disabled by default. Configure approved transactional SMTP credentials
+before enabling it. Production requires a verified sending domain; Resend's
+restricted development sender is described below.
 
 ```text
 AUTH_EMAIL_MODE=smtp
@@ -187,6 +188,88 @@ HTTP access logs. Disable link tracking and redact complete reset links in email
 and mobile diagnostics. A web fallback must use no-referrer and never log the
 fragment or include it in analytics. Plain HTTP and custom-scheme reset URLs are
 not accepted.
+
+### Resend SMTP development setup (owner action; no email sent by setup)
+
+The existing environment names are `AUTH_EMAIL_MODE`, `AUTH_RESET_URL`,
+`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD` and
+`SMTP_FROM`. There is no `RESEND_API_KEY` or recipient environment setting in this
+implementation. The forgot-password request's registered email is the recipient.
+
+Revoke the previously exposed Resend key in the Resend dashboard. Treat it as
+compromised even if it still works. Create a new sending key and enter it privately
+into the local process environment as `SMTP_PASSWORD`; never paste it into chat,
+source files, shell command history, screenshots or logs. The repository example
+and commands contain no key. This setup does not alter the local `.env` or any
+Resend account settings automatically.
+
+Use the following non-secret local settings and inject the new password separately:
+
+```dotenv
+AUTH_EMAIL_MODE=smtp
+AUTH_RESET_URL=https://reset.example.invalid/auth/reset-password
+SMTP_HOST=smtp.resend.com
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=resend
+SMTP_FROM=onboarding@resend.dev
+# SMTP_PASSWORD must be supplied privately as a local environment variable.
+```
+
+The `.env.example` keeps `AUTH_EMAIL_MODE=disabled` and `SMTP_PASSWORD` empty.
+Port 465 connects with implicit TLS (`secure: true`); certificate validation stays
+enabled. No credentials, certificate bypass, SMTP debug logging or provider SDK
+are added to source. See [Resend SMTP settings](https://resend.com/docs/send-with-smtp).
+
+No custom **sending** domain is needed for this development test: Resend restricts
+`onboarding@resend.dev` to the email associated with the Resend account. Register
+that same address as a User in the disposable local Brandora database. Do not try
+other recipients or add a hardcoded recipient override to the backend. Sending
+to other users requires a verified domain and an appropriate sender. See
+[Resend's development-domain restriction](https://resend.com/docs/knowledge-base/403-error-resend-dev-domain).
+
+`https://reset.example.invalid/auth/reset-password` is an intentionally
+non-deployed placeholder, not a functioning Android URL. The mailer validates URL
+syntax, not hosting or App Link ownership. Mail receipt and manual API reset can
+be tested with this placeholder; clicking it will not complete a reset. End-to-end
+Android testing requires an owner-supplied HTTPS development URL, a matching
+Android intent filter and the appropriate App Link association. Keep the token
+in the fragment; do not change to a custom scheme or claim a verified link exists.
+No Android package name, deployed page or domain is assumed by this backend.
+
+When the owner is ready to send a real test email:
+
+1. Revoke the compromised key, create a replacement and inject it privately.
+   Use an isolated local PostgreSQL database and local API only. Keep existing
+   JWT settings; never point this test at Neon production.
+2. Set the non-secret SMTP values above, decide whether to test only receipt/manual
+   reset or supply a working Android URL, then restart the local API. Do not dump
+   environment variables or enable Nodemailer debug logging.
+3. Register or log in to a disposable Brandora User with the Resend account email.
+   Keep a test access/refresh session privately if testing session invalidation.
+4. In a private local API client, send `POST /auth/forgot-password` to
+   `http://127.0.0.1:3000` with JSON `{ "email": "<RESEND_ACCOUNT_EMAIL>" }`.
+   Expect generic HTTP 200, not confirmation of delivery. Check the owner's inbox,
+   spam folder and Resend email status privately; do not export bodies or links.
+5. Extract the `token` from the email link's `#token=...` fragment privately, and
+   send `POST /auth/reset-password` with `token` and a new disposable password.
+   Expect 204. Do not put either value in URL queries, command history or shared
+   API-client collections. With the placeholder URL, this is a manual API test.
+6. Reusing the token must return 400 `AUTH_RESET_INVALID`. The old password must
+   fail, the new password must log in, and old access/refresh sessions must fail.
+   Requesting a newer reset supersedes the older one; tokens expire in 15 minutes.
+7. Missing configuration returns 503 `AUTH_EMAIL_UNAVAILABLE` for both known and
+   unknown accounts. With configuration present, SMTP failures still return the
+   generic 200 to avoid account enumeration, emit a sanitized server error and
+   mark the reset FAILED/consumed. SMTP acceptance is not inbox delivery. Do not
+   retry repeatedly: a new request invalidates the previous token and rate limits
+   apply. Inspect provider status and sanitized logs, never raw SMTP exceptions.
+8. Set `AUTH_EMAIL_MODE=disabled` and remove the injected SMTP secret after testing.
+
+Maintained mocked transport and failure-response checks run with
+`npm test -- --runTestsByPath verification/regressions/resend-smtp.spec.ts`.
+They never connect to Resend or send email. The existing isolated PostgreSQL
+hardening verifier continues to test single-use reset and session revocation.
 
 ## Profile and switching businesses
 

@@ -1,5 +1,13 @@
 # Maintained regression suite
 
+Resend configuration checks live in `regressions/resend-smtp.spec.ts` and run in
+`npm test`. For the focused suite, run
+`npm test -- --runTestsByPath verification/regressions/resend-smtp.spec.ts`.
+SMTP is mocked: implicit TLS on port 465, certificate validation, missing keys,
+unsupported reset URLs and sanitized failure responses are tested without
+opening an SMTP connection. Setup and the owner-only live-email procedure are
+documented in [Authentication](../docs/auth-api.md).
+
 `controller-route-inventory.spec.cjs` runs automatically in `npm test` after its
 pretest build. It discovers compiled controllers directly under `dist/`, verifies
 every route against the reviewed authorization policy, and restricts public
