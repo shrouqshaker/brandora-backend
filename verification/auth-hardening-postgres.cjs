@@ -649,6 +649,38 @@ async function main() {
     .set('Authorization', `Bearer ${healthy.accessToken}`)
     .expect(200);
   checks++;
+  // Real local sockets: caller headers must not rotate the quota. This proves
+  // the empty-CIDR fallback, not Railway's live edge sanitization.
+  await expireLimits();
+  const forgedRequests = await Promise.all(
+    Array.from({ length: 12 }, (_value, i) =>
+      http[i % 2]
+        .post('/auth/register')
+        .set('X-Forwarded-For', [`198.51.100.${i + 1}`, `203.0.113.${i + 1}`])
+        .set('X-Real-IP', [`2001:db8::${i + 1}`, `198.51.100.${i + 1}`])
+        .set('Forwarded', `for=203.0.113.${i + 1}`)
+        .set('CF-Connecting-IP', `198.51.100.${i + 1}`)
+        .send({}),
+    ),
+  );
+  checks += forgedRequests.length;
+  assert.equal(
+    forgedRequests.filter((response) => response.status === 400).length,
+    10,
+  );
+  assert.equal(
+    forgedRequests.filter((response) => response.status === 429).length,
+    2,
+  );
+  for (const response of forgedRequests) {
+    if (response.status === 429) {
+      assert.equal(response.body.code, 'AUTH_RATE_LIMITED');
+      assert.ok(Number(response.headers['retry-after']) > 0);
+    } else assert.equal(response.body.code, 'VALIDATION_ERROR');
+  }
+  console.log(
+    'PASS: 12 concurrent requests across two apps with forged/repeated forwarding headers share one socket-IP quota: 10 validation responses, 2 HTTP 429 responses with Retry-After.',
+  );
   // Verify shared limits at every sensitive HTTP boundary on both app instances.
   for (const [route, body, ordinary] of [
     ['/auth/register', { email: 'bad', password: 'weak' }, 400],

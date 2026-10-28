@@ -1,5 +1,17 @@
 # Maintained regression suite
 
+`regressions/auth-proxy.spec.ts` tests direct forged headers, explicit trusted
+and untrusted socket peers, right-to-left forwarding chains, malformed selected
+addresses, repeated X-Real-IP, IPv6 canonicalization and shared-peer aggregation.
+Run it with `npm test -- --runTestsByPath verification/regressions/auth-proxy.spec.ts`.
+These peers are simulated; they do not prove Railway ingress provenance.
+The PostgreSQL hardening verifier additionally sends 12 concurrent requests over
+real local sockets to two application instances, rotating forged/repeated XFF
+and X-Real-IP headers. Ten reach validation and two receive 429 with Retry-After;
+all use the same socket-IP quota. Existing database concurrency, expiry,
+reconnection and unavailable-store checks remain enabled.
+See [Railway security review](../docs/railway-proxy-security.md) before deployment.
+
 Resend configuration checks live in `regressions/resend-smtp.spec.ts` and run in
 `npm test`. For the focused suite, run
 `npm test -- --runTestsByPath verification/regressions/resend-smtp.spec.ts`.

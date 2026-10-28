@@ -383,15 +383,20 @@ before high-volume deployment.
 (60 seconds for full allocation capacity). At most two password operations run
 concurrently per process; saturation returns 429 with Retry-After: 1.
 
-AUTH_TRUSTED_PROXY_CIDRS is empty by default: X-Forwarded-For is ignored and the
-socket peer is used. Configure only verified ingress peer CIDRs; forwarded chains
-are read from the trusted right edge and stop at the first untrusted hop. Addresses
-are canonicalized, including IPv4-mapped IPv6. Do not trust arbitrary forwarding
-headers, all private networks or a guessed hop count. Railway's actual peer
-addresses and forwarding/sanitization behavior must be verified by the deployer;
-this task did not access production. Until configured, users behind a shared
-Railway proxy may share the IP quota. HTTPS terminates at the ingress; CORS is not
-authorization.
+AUTH_TRUSTED_PROXY_CIDRS is empty by default: forwarding headers are ignored and
+the socket peer is used. With verified proxy CIDRs, X-Forwarded-For is read from
+the right and stops at the first untrusted hop. X-Real-IP and Express req.ip are
+not used. IPv6 and mapped IPv4 addresses are canonicalized. Express trust proxy
+is not enabled by this application.
+
+This is a spoof-resistant fallback, **not a complete Railway per-client IP
+configuration**. Shared proxy peers share IP quotas and can block unrelated users.
+Railway publishes neither a stable proxy CIDR allowlist nor a fixed hop count;
+do not guess either or trust X-Real-IP on private/direct requests. There is no
+environment-only setting that solves ingress authentication in the current code.
+See [Railway proxy security review](railway-proxy-security.md) for the deployment
+blocker, required boundary and locally proven tests. No production settings were
+inspected or changed. CORS is not authorization.
 
 Email verification, MFA, invitations and staff management remain out of scope.
 Registration still reveals email availability through 409; login and recovery
