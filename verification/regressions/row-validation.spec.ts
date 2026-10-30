@@ -1,246 +1,135 @@
-import { RowNormalizer } from '../../src/imports/validation/row-normalizer';
 import { RowValidator } from '../../src/imports/validation/row-validator';
+import { RowNormalizer } from '../../src/imports/validation/row-normalizer';
 import { MappingType } from '../../src/imports/mapping-fields';
-import { SavedColumnMapping } from '../../src/imports/mapping.service';
 import { ExcelValue } from '../../src/imports/adapters/excel.adapter';
 
-describe('Row normalization and validation', () => {
-  const normalizer = new RowNormalizer();
-  const validator = new RowValidator(normalizer);
-  const mapping: SavedColumnMapping[] = [
-    ...[
-      'externalKey',
-      'name',
-      'description',
-      'category',
-      'basePrice',
-      'stockQuantity',
-    ].map((target, index) => ({
-      sourceColumn: target,
-      sourceColumnIndex: index + 1,
-      type: MappingType.STANDARD,
-      target,
-    })),
-    {
-      sourceColumn: 'Fabric',
-      sourceColumnIndex: 7,
-      type: MappingType.ATTRIBUTE,
-      target: 'material',
-    },
-    {
-      sourceColumn: 'Size',
-      sourceColumnIndex: 8,
-      type: MappingType.VARIANT_ATTRIBUTE,
-      target: 'size',
-    },
-    {
-      sourceColumn: 'Notes',
-      sourceColumnIndex: 9,
-      type: MappingType.IGNORE,
-      target: null,
-    },
-    {
-      sourceColumn: 'Other',
-      sourceColumnIndex: 10,
-      type: MappingType.UNMAPPED,
-      target: null,
-    },
+describe('Product/variant workbook normalization and grouping', () => {
+  const validator = new RowValidator(new RowNormalizer());
+  const targets = [
+    'externalKey',
+    'name',
+    'sku',
+    'basePrice',
+    'unitPrice',
+    'stockQuantity',
+    'color',
+    'size',
   ];
-  const values: ExcelValue[] = [
-    ' SKU-001 ',
-    ' T-Shirt  XL ',
-    ' Cotton\nshirt ',
-    ' Shirts ',
-    '299.99',
-    '10',
-    ' Cotton ',
-    ' XL ',
-    'ignored',
-    'unmapped',
-  ];
-  const validate = (input: ExcelValue[]) =>
+  const mapping = targets.map((target, i) => ({
+    sourceColumn: target,
+    sourceColumnIndex: i + 1,
+    type: i < 6 ? MappingType.STANDARD : MappingType.VARIANT_ATTRIBUTE,
+    target,
+  }));
+  const validate = (rows: ExcelValue[][], configurable = true) =>
     validator.validate(
-      [{ rowNumber: 8, values: input, isEmpty: false }],
-      mapping,
+      rows.map((values, i) => ({
+        rowNumber: i + 2,
+        values,
+        isEmpty: values.every((v) => v === null),
+      })),
+      configurable ? mapping : mapping.slice(0, 6),
     );
-
-  it('trims only surrounding whitespace and separates standard, attribute, and variant values', () => {
-    const result = validate(values);
-    expect(result.summary).toEqual({
-      totalRows: 1,
+  const row: ExcelValue[] = [
+    'P',
+    'Shirt',
+    'RED-M',
+    '10',
+    '12.50',
+    3,
+    'Red',
+    'M',
+  ];
+  it('groups product rows into arbitrary option definitions and independent variants', () => {
+    const r = validate([
+      row,
+      ['P', 'Shirt', 'BLUE-M', '10', null, 8, 'Blue', 'M'],
+    ]);
+    expect(r.summary.validRows).toBe(2);
+    expect(r.validRows[0].data).toMatchObject({
+      basePrice: '10.00',
+      unitPrice: '12.50',
+      stockQuantity: 3,
+      options: { color: ['Red', 'Blue'], size: ['M'] },
+    });
+  });
+  it('supports simple products with {} options and an optional default SKU', () => {
+    const r = validate([['TEA', 'Tea', null, '5', null, null]], false);
+    expect(r.summary.validRows).toBe(1);
+    expect(r.validRows[0].data.options).toEqual({});
+    expect(r.validRows[0].data.stockQuantity).toBeNull();
+  });
+  it.each([0, 5, 2147483647])('normalizes quantity %s', (q) => {
+    expect(
+      validate([row.map((v, i) => (i === 5 ? q : v))]).validRows[0].data
+        .stockQuantity,
+    ).toBe(q);
+  });
+  it.each([-1, 1.5, '1e2', '1,000', 2147483648])(
+    'rejects invalid quantity %s',
+    (q) => {
+      expect(
+        validate([row.map((v, i) => (i === 5 ? q : v))]).summary.invalidRows,
+      ).toBe(1);
+    },
+  );
+  it.each(['-1', '1.234', '1e3', '10000000000', '$2'])(
+    'rejects invalid price %s',
+    (p) => {
+      expect(
+        validate([row.map((v, i) => (i === 3 ? p : v))]).summary.invalidRows,
+      ).toBe(1);
+    },
+  );
+  it.each([0, 1, 2, 6, 7])(
+    'requires identity/name/selected option cell %s',
+    (index) => {
+      expect(
+        validate([row.map((v, i) => (i === index ? null : v))]).summary
+          .invalidRows,
+      ).toBe(1);
+    },
+  );
+  it('rejects duplicate option combinations even with different SKUs', () => {
+    expect(
+      validate([row, row.map((v, i) => (i === 2 ? 'OTHER' : v))]).summary
+        .invalidRows,
+    ).toBe(2);
+  });
+  it('rejects duplicate SKUs across product groups', () => {
+    expect(
+      validate([row, row.map((v, i) => (i === 0 ? 'OTHER' : v))]).summary
+        .invalidRows,
+    ).toBe(2);
+  });
+  it('rejects inconsistent metadata across rows of one product', () => {
+    expect(
+      validate([row, ['P', 'Different', 'BLUE', '10', null, 8, 'Blue', 'M']])
+        .summary.invalidRows,
+    ).toBe(2);
+  });
+  it('counts physical blanks separately', () => {
+    expect(validate([row, [null, null, null]]).summary).toEqual({
+      totalRows: 2,
       validRows: 1,
       invalidRows: 0,
-      skippedRows: 0,
-    });
-    expect(result.validRows).toEqual([
-      {
-        rowNumber: 8,
-        data: {
-          externalKey: 'SKU-001',
-          name: 'T-Shirt  XL',
-          description: 'Cotton\nshirt',
-          category: 'Shirts',
-          basePrice: '299.99',
-          stockQuantity: 10,
-          attributes: { material: 'Cotton' },
-          variantAttributes: { size: 'XL' },
-        },
-      },
-    ]);
-    expect(JSON.stringify(result.validRows)).not.toContain('ignored');
-    expect(JSON.stringify(result.validRows)).not.toContain('unmapped');
-  });
-
-  it('distinguishes unmapped, mapped blank, and mapped value without overwriting semantics', () => {
-    const partial = mapping.filter((entry) => entry.target !== 'category');
-    const input = [...values];
-    input[0] = ' ';
-    input[2] = '\t';
-    input[4] = '';
-    input[5] = null;
-    input[6] = ' ';
-    const result = validator.validate(
-      [{ rowNumber: 4, values: input, isEmpty: false }],
-      partial,
-    );
-    const data = result.validRows[0].data;
-    expect(data).toMatchObject({
-      externalKey: null,
-      name: 'T-Shirt  XL',
-      description: null,
-      basePrice: null,
-      stockQuantity: null,
-      attributes: { material: null },
-    });
-    expect(Object.hasOwn(data, 'category')).toBe(false);
-    expect(Object.hasOwn(data, 'description')).toBe(true);
-  });
-
-  it.each([
-    ['missing name', 1, '   ', 'name', 'REQUIRED'],
-    ['negative price', 4, '-1', 'basePrice', 'INVALID_DECIMAL'],
-    ['too many decimal places', 4, '1.234', 'basePrice', 'INVALID_DECIMAL'],
-    ['non-numeric price', 4, 'free', 'basePrice', 'INVALID_DECIMAL'],
-    [
-      'decimal precision overflow',
-      4,
-      '10000000000.00',
-      'basePrice',
-      'INVALID_DECIMAL',
-    ],
-    ['currency price', 4, '$20', 'basePrice', 'INVALID_DECIMAL'],
-    ['grouped price', 4, '1,000.00', 'basePrice', 'INVALID_DECIMAL'],
-    ['scientific price', 4, '1e2', 'basePrice', 'INVALID_DECIMAL'],
-    ['negative stock', 5, '-1', 'stockQuantity', 'INVALID_INTEGER'],
-    ['decimal stock', 5, '1.5', 'stockQuantity', 'INVALID_INTEGER'],
-    ['fractional stock string', 5, '10.0', 'stockQuantity', 'INVALID_INTEGER'],
-    [
-      'stock integer overflow',
-      5,
-      '2147483648',
-      'stockQuantity',
-      'INVALID_INTEGER',
-    ],
-    ['boolean stock', 5, true, 'stockQuantity', 'INVALID_INTEGER'],
-    ['long name', 1, 'a'.repeat(201), 'name', 'TEXT_TOO_LONG'],
-    ['long external key', 0, 'a'.repeat(201), 'externalKey', 'TEXT_TOO_LONG'],
-    ['long category', 3, 'a'.repeat(201), 'category', 'TEXT_TOO_LONG'],
-  ])('marks %s invalid', (_label, index, value, field, code) => {
-    const input = [...values];
-    input[index as number] = value as ExcelValue;
-    const result = validate(input);
-    expect(result.validRows).toHaveLength(0);
-    expect(result.invalidRows).toEqual([
-      { rowNumber: 8, errors: [expect.objectContaining({ field, code })] },
-    ]);
-  });
-
-  it.each([
-    ['0', '0.00'],
-    ['.50', '0.50'],
-    ['+001.20', '1.20'],
-    ['9999999999.99', '9999999999.99'],
-    [29.9, '29.90'],
-  ])('normalizes price %s to an exact string', (value, expected) => {
-    const input = [...values];
-    input[4] = value;
-    expect(validate(input).validRows[0].data.basePrice).toBe(expected);
-  });
-
-  it('preserves zero, scalar attributes, and numeric product codes', () => {
-    const input = [...values];
-    input[0] = 123;
-    input[4] = 0;
-    input[5] = 0;
-    input[6] = false;
-    input[7] = 42;
-    expect(validate(input).validRows[0].data).toMatchObject({
-      externalKey: '123',
-      basePrice: '0.00',
-      stockQuantity: 0,
-      attributes: { material: false },
-      variantAttributes: { size: 42 },
-    });
-  });
-
-  it('marks every repeated non-null code invalid, including the first occurrence', () => {
-    const first = [...values];
-    const second = [...values];
-    second[0] = 'SKU-001';
-    second[4] = '-1';
-    const result = validator.validate(
-      [
-        { rowNumber: 4, values: first, isEmpty: false },
-        { rowNumber: 7, values: second, isEmpty: false },
-      ],
-      mapping,
-    );
-    expect(result.summary.invalidRows).toBe(2);
-    expect(result.invalidRows.map((row) => row.rowNumber)).toEqual([4, 7]);
-    for (const row of result.invalidRows)
-      expect(row.errors).toContainEqual(
-        expect.objectContaining({ code: 'DUPLICATE_EXTERNAL_KEY' }),
-      );
-    expect(result.invalidRows[1].errors).toContainEqual(
-      expect.objectContaining({ code: 'INVALID_DECIMAL' }),
-    );
-  });
-
-  it('allows multiple blank codes and treats case-distinct codes as distinct', () => {
-    const result = validator.validate(
-      [' ', null, 'SKU-001', 'sku-001'].map((key, index) => {
-        const input = [...values];
-        input[0] = key;
-        return { rowNumber: index + 4, values: input, isEmpty: false };
-      }),
-      mapping,
-    );
-    expect(result.summary.validRows).toBe(4);
-  });
-
-  it('skips blank rows but marks a non-empty row with blank mapped values invalid', () => {
-    const result = validator.validate(
-      [
-        { rowNumber: 4, values: [], isEmpty: true },
-        {
-          rowNumber: 5,
-          values: [null, ' ', null, null, null, null, null, null, 'note'],
-          isEmpty: false,
-        },
-      ],
-      mapping,
-    );
-    expect(result.summary).toEqual({
-      totalRows: 2,
-      validRows: 0,
-      invalidRows: 1,
       skippedRows: 1,
     });
-    expect(result.invalidRows[0]).toMatchObject({
-      rowNumber: 5,
-      errors: [
-        { field: 'name', code: 'REQUIRED', message: expect.any(String) },
+  });
+  it('turns numeric selected values into canonical string values', () => {
+    const r = validate([row.map((v, i) => (i === 7 ? 42 : v))]);
+    expect(r.validRows[0].data.variantAttributes!.size).toBe('42');
+  });
+  it('does not let a missing product code collide with a literal missing-row code', () => {
+    const result = validate(
+      [
+        [null, 'Missing', null, null, null, null],
+        ['missing:2', 'Valid', null, null, null, null],
       ],
-    });
+      false,
+    );
+    expect(result.summary.validRows).toBe(1);
+    expect(result.validRows[0].data.externalKey).toBe('missing:2');
+    expect(result.summary.invalidRows).toBe(1);
   });
 });

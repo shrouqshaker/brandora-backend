@@ -10,6 +10,7 @@ import { parseSavedMapping } from './validation/saved-mapping';
 import { ImportPaginationDto } from './dto/import-pagination.dto';
 import { importPageRowNumbers, importPagination } from './paginate-import-rows';
 import { RowValidationResult } from './validation/row.types';
+import { checkImportDatabase } from './variant-import-policy';
 
 @Injectable()
 export class ValidationService {
@@ -59,8 +60,9 @@ export class ValidationService {
           'utf8',
         ),
       );
+      if (snapshot.version === 1) this.resultsUnavailable();
       if (
-        snapshot.version !== 1 ||
+        snapshot.version !== 2 ||
         snapshot.importId !== importId ||
         !snapshot.result ||
         !Array.isArray(snapshot.result.validRows) ||
@@ -85,6 +87,7 @@ export class ValidationService {
       )
         throw new Error('Inconsistent validation snapshot');
     } catch (error: unknown) {
+      if (error instanceof AppHttpException) throw error;
       if ((error as NodeJS.ErrnoException)?.code === 'ENOENT')
         this.resultsUnavailable();
       throw new AppHttpException(
@@ -159,6 +162,7 @@ export class ValidationService {
       const job = await this.prisma.importJob.findUnique({
         where: { id: importId },
         select: {
+          businessId: true,
           fileKey: true,
           sheetName: true,
           headerRow: true,
@@ -173,10 +177,14 @@ export class ValidationService {
         job.headerRow,
       );
       const mapping = parseSavedMapping(job.mapping, workbook.headers);
-      const result = this.rows.validate(workbook.rows, mapping);
+      const result = await checkImportDatabase(
+        this.rows.validate(workbook.rows, mapping),
+        job.businessId,
+        this.prisma,
+      );
       await this.storage.saveValidationResult(
         job.fileKey,
-        Buffer.from(JSON.stringify({ version: 1, importId, result })),
+        Buffer.from(JSON.stringify({ version: 2, importId, result })),
       );
       snapshotKey = job.fileKey;
       const completed = await this.prisma.importJob.updateMany({

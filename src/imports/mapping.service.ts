@@ -128,13 +128,17 @@ export class MappingService {
         case MappingType.VARIANT_ATTRIBUTE: {
           if (
             typeof entry.target !== 'string' ||
-            !/^[a-z][a-z0-9_]{0,63}$/.test(entry.target) ||
+            (entry.type === MappingType.ATTRIBUTE
+              ? !/^[a-z][a-z0-9_]{0,63}$/.test(entry.target)
+              : !entry.target.trim() ||
+                entry.target !== entry.target.trim() ||
+                entry.target.length > 60) ||
             ['constructor', 'prototype', '__proto__'].includes(entry.target)
           ) {
             throw new AppHttpException(
               ErrorCode.MAPPING_ATTRIBUTE_TARGET_INVALID,
               HttpStatus.BAD_REQUEST,
-              'Attribute targets must be safe lowercase keys of 1 to 64 letters, digits, or underscores, starting with a letter',
+              'Attribute targets use safe lowercase keys; variant option names use trimmed names of 1 to 60 characters',
             );
           }
           const key = `${entry.type}:${entry.target}`;
@@ -175,6 +179,12 @@ export class MappingService {
         ErrorCode.MAPPING_NAME_REQUIRED,
         HttpStatus.BAD_REQUEST,
         'The name standard field must be mapped before confirmation',
+      );
+    if (!standardTargets.has('externalKey'))
+      throw new AppHttpException(
+        ErrorCode.VALIDATION_ERROR,
+        HttpStatus.BAD_REQUEST,
+        'externalKey must be mapped as the stable product grouping code',
       );
 
     // Guard the write atomically so a job cannot be remapped after validation starts.

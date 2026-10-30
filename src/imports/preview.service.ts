@@ -1,7 +1,7 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { AppHttpException } from '../common/errors/app-http.exception';
 import { ErrorCode } from '../common/errors/error-code';
-import { ImportJobStatus } from '../generated/prisma/client';
+import { Prisma, ImportJobStatus } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ExcelAdapter } from './adapters/excel.adapter';
 import { ImportFileStorage } from './storage/import-file.storage';
@@ -9,9 +9,9 @@ import { RowValidator } from './validation/row-validator';
 import { RowValidationResult } from './validation/row.types';
 import { parseSavedMapping } from './validation/saved-mapping';
 import { ImportPlanner } from './preview/import-planner';
-import { ExistingCatalogItem } from './preview/preview.types';
 import { ImportPaginationDto } from './dto/import-pagination.dto';
 import { importPageRowNumbers, importPagination } from './paginate-import-rows';
+import { prepareImportContext } from './variant-import-policy';
 
 @Injectable()
 export class PreviewService {
@@ -85,39 +85,16 @@ export class PreviewService {
         'Unable to rebuild the import preview from the retained workbook',
       );
     }
-    const keys = [
-      ...new Set(
-        validated.validRows.flatMap((row) =>
-          row.data.externalKey == null ? [] : [row.data.externalKey],
-        ),
-      ),
-    ];
-    const existing: ExistingCatalogItem[] = [];
-    for (let offset = 0; offset < keys.length; offset += 1000) {
-      existing.push(
-        ...(await this.prisma.catalogItem.findMany({
-          where: {
-            businessId: job.businessId,
-            externalKey: { in: keys.slice(offset, offset + 1000) },
-          },
-          select: {
-            id: true,
-            businessId: true,
-            externalKey: true,
-            name: true,
-            description: true,
-            category: true,
-            basePrice: true,
-            stockQuantity: true,
-            attributes: true,
-          },
-        })),
-      );
-    }
+    const context = await this.prisma.$transaction(
+      (tx) => prepareImportContext(validated, job.businessId, tx),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+    validated = context.validation;
     const plan = this.planner.plan(
       job.businessId,
       validated.validRows,
-      existing,
+      context.products,
+      context.categories,
     );
     const page = importPageRowNumbers(
       [plan.inserts, plan.updates, plan.unchanged, validated.invalidRows],

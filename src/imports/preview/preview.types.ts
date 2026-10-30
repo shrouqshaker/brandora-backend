@@ -1,4 +1,8 @@
-import { CatalogItem, Prisma } from '../../generated/prisma/client';
+import {
+  CatalogItem,
+  ProductVariant,
+  Prisma,
+} from '../../generated/prisma/client';
 import { ExcelValue } from '../adapters/excel.adapter';
 import { NormalizedRow } from '../validation/row.types';
 
@@ -11,13 +15,18 @@ export type ExistingCatalogItem = Pick<
   | 'description'
   | 'category'
   | 'basePrice'
-  | 'stockQuantity'
   | 'attributes'
->;
+> & {
+  variants?: ProductVariant[];
+  options?: Prisma.JsonValue;
+  isActive?: boolean;
+  categoryId?: string | null;
+};
 
 interface PlannedRow {
   rowNumber: number;
   externalKey: string | null;
+  variantId?: string;
   variantAttributes?: Record<string, ExcelValue>;
 }
 

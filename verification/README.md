@@ -1,5 +1,22 @@
 # Maintained regression suite
 
+Variant-only inventory/import upgrade: `npm run test:variant-inventory:postgres`
+builds current source and runs `variant-inventory-import-postgres.cjs` with Node's
+test runner. It uses a random new PostgreSQL database on 127.0.0.1:55439, never
+the environment's production URL. It checks the legacy-data migration refusal,
+identity/business/session/import fixture preservation, actual JWT-protected HTTP,
+tracked/untracked stock, racing order deductions, idempotency, rollback, full
+Excel workflow, SQL CHECKs/composite FKs/partial uniqueness and drift. No SMTP or
+production cleanup runs. See [rollout and Orders contract](../docs/variant-inventory-rollout.md).
+
+The official inventory, row validation, preview, validation, execution and planner
+suites now target the new variant-only contract. Obsolete product-level stock,
+inert variant metadata and unkeyed import assertions were replaced in place;
+the Jest discovery configuration is unchanged and still includes all 23 suites.
+Existing Auth and Products PostgreSQL verifiers also deploy all ten migrations;
+their stock fixtures/routes now use variant inventory. The foundation's historical
+SQL verifier remains a Task 1 baseline tool, not the final-schema verifier.
+
 `regressions/auth-proxy.spec.ts` tests direct forged headers, explicit trusted
 and untrusted socket peers, right-to-left forwarding chains, malformed selected
 addresses, repeated X-Real-IP, IPv6 canonicalization and shared-peer aggregation.

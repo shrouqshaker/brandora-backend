@@ -18,28 +18,32 @@ import { InventoryService } from './inventory.service';
 export class InventoryController {
   constructor(private readonly inventory: InventoryService) {}
 
-  @Post('catalog-items/:catalogItemId/inventory/adjust')
+  @Post('products/:catalogItemId/variants/:variantId/inventory/adjust')
   adjust(
     @Param('businessId', new ParseUUIDPipe()) businessId: string,
     @Param('catalogItemId', new ParseUUIDPipe()) catalogItemId: string,
+    @Param('variantId', new ParseUUIDPipe()) variantId: string,
     @Body() dto: AdjustInventoryDto,
   ) {
     return this.inventory.setQuantity(
-      { id: catalogItemId, businessId },
+      { id: variantId, catalogItemId, businessId },
       dto.quantity,
       InventoryMovementType.MANUAL_ADJUSTMENT,
+      undefined,
+      undefined,
+      dto.trackInventory !== false,
     );
   }
 
-  @Get('catalog-items/:catalogItemId/inventory/movements')
+  @Get('products/:catalogItemId/variants/:variantId/inventory/movements')
   itemMovements(
     @Param('businessId', new ParseUUIDPipe()) businessId: string,
     @Param('catalogItemId', new ParseUUIDPipe()) catalogItemId: string,
+    @Param('variantId', new ParseUUIDPipe()) variantId: string,
     @Query() pagination: PaginationQueryDto,
   ) {
-    return this.inventory.listItemMovements(
-      businessId,
-      catalogItemId,
+    return this.inventory.listVariantMovements(
+      { businessId, catalogItemId, id: variantId },
       pagination,
     );
   }

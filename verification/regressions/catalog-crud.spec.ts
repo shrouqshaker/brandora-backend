@@ -46,8 +46,6 @@ describe('Catalog metadata CRUD HTTP API (stateful mocked persistence)', () => {
     basePrice: new Prisma.Decimal('49.90'),
     attributes: { material: 'Cotton', color: 'Blue' },
     isActive: true,
-    stockQuantity: 7,
-    trackInventory: true,
     createdAt: new Date('2026-10-01T00:00:00Z'),
     updatedAt: new Date('2026-10-01T00:00:00Z'),
   });
@@ -92,8 +90,6 @@ describe('Catalog metadata CRUD HTTP API (stateful mocked persistence)', () => {
         description: null,
         category: null,
         attributes: null,
-        stockQuantity: null,
-        trackInventory: false,
         isActive: true,
         ...data,
       };
@@ -193,8 +189,6 @@ describe('Catalog metadata CRUD HTTP API (stateful mocked persistence)', () => {
       basePrice: '49.9',
       attributes: { material: 'Cotton', nested: { values: [1, true, null] } },
       isActive: false,
-      stockQuantity: null,
-      trackInventory: false,
     });
   });
   it('accepts explicit nullable create metadata and maps attributes null to database null', async () => {
@@ -408,8 +402,6 @@ describe('Catalog metadata CRUD HTTP API (stateful mocked persistence)', () => {
       businessId,
       basePrice: '49.9',
       isActive: false,
-      stockQuantity: 7,
-      trackInventory: true,
     });
     expect(prisma.catalogItem.findFirst).toHaveBeenCalledWith({
       where: { id, businessId },
@@ -501,8 +493,6 @@ describe('Catalog metadata CRUD HTTP API (stateful mocked persistence)', () => {
       category: 'New category',
       basePrice: '123.45',
       attributes: { material: 'Linen' },
-      stockQuantity: 7,
-      trackInventory: true,
     });
     expect(response.body.attributes).not.toHaveProperty('color');
     expect(prisma.catalogItem.update.mock.calls[0][0].where).toEqual({
@@ -560,8 +550,6 @@ describe('Catalog metadata CRUD HTTP API (stateful mocked persistence)', () => {
       expect(response.body).toMatchObject({
         id,
         isActive: false,
-        stockQuantity: 7,
-        trackInventory: true,
       });
     }
     expect(items).toHaveLength(1);
@@ -574,8 +562,6 @@ describe('Catalog metadata CRUD HTTP API (stateful mocked persistence)', () => {
     const response = await patch({ businessId, isActive: true }).expect(200);
     expect(response.body).toMatchObject({
       isActive: true,
-      stockQuantity: 7,
-      trackInventory: true,
     });
   });
   it('retains inactive-item external keys under the same unique constraint', async () => {

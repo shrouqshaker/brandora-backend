@@ -55,6 +55,13 @@ Excel upload limit. Multiple messages share a code when their semantics match.
 | Catalog item not found in this business                                                                          | `CATALOG_ITEM_NOT_FOUND`             |
 | Stock changed concurrently; retry the operation                                                                  | `INVENTORY_CONFLICT`                 |
 
+Variant inventory adds `409 INVENTORY_INACTIVE` for stock writes/sales on inactive
+records and `409 INVENTORY_INSUFFICIENT_STOCK` for insufficient tracked stock.
+`INVENTORY_CONFLICT` also covers mismatched/reused operation references and tracking
+changes with outstanding deductions. Missing scoped variants use
+`404 VARIANT_NOT_FOUND`. Reference type and ID must now both be supplied together;
+product-level stock endpoints have been removed. See [Inventory](inventory-api.md).
+
 Validation-results reads:
 
 Validation-results reads return `409 IMPORT_VALIDATION_RESULTS_UNAVAILABLE`

@@ -39,6 +39,8 @@ describe('Global HTTP error contract (real application modules, mocked persisten
     deleteValidationResult: jest.fn(),
   };
   const tx = {
+    $queryRaw: jest.fn(),
+    productVariant: { findFirst: jest.fn(), update: jest.fn() },
     catalogItem: { findFirst: jest.fn(), updateMany: jest.fn() },
     inventoryMovement: { create: jest.fn() },
   };
@@ -59,7 +61,7 @@ describe('Global HTTP error contract (real application modules, mocked persisten
     @Get('inventory-invalid')
     invalidInventory() {
       return inventory.setQuantity(
-        { id, businessId: id },
+        { id, businessId: id, catalogItemId: id },
         -1,
         InventoryMovementType.IMPORT_UPDATE,
       );
@@ -68,7 +70,7 @@ describe('Global HTTP error contract (real application modules, mocked persisten
     @Get('inventory-conflict')
     inventoryConflict() {
       return inventory.setQuantity(
-        { id, businessId: id },
+        { id, businessId: id, catalogItemId: id },
         9,
         InventoryMovementType.IMPORT_UPDATE,
       );
@@ -175,7 +177,19 @@ describe('Global HTTP error contract (real application modules, mocked persisten
       return 'private-key';
     });
     storage.read.mockResolvedValue(buffer);
-    tx.catalogItem.findFirst.mockResolvedValue({ stockQuantity: 5 });
+    tx.$queryRaw.mockResolvedValue([{ id, isActive: true }]);
+    tx.productVariant.findFirst.mockResolvedValue({
+      stockQuantity: 5,
+      trackInventory: true,
+      isActive: true,
+    });
+    tx.productVariant.update.mockImplementation(() => {
+      throw new AppHttpException(
+        ErrorCode.INVENTORY_CONFLICT,
+        409,
+        'Stock changed concurrently',
+      );
+    });
     tx.catalogItem.updateMany.mockResolvedValue({ count: 0 });
     prisma.$transaction.mockImplementation(async (callback) => callback(tx));
   });

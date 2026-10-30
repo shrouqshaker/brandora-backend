@@ -21,6 +21,7 @@ export class CatalogService {
           name: dto.name,
           ...metadata,
           basePrice: metadata.basePrice ?? null,
+          variants: { create: {} },
         },
       });
     } catch (error: unknown) {

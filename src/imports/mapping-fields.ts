@@ -9,6 +9,16 @@ export enum MappingType {
 // Internal identifiers, owner-facing labels, and explicit aliases are separate.
 export const STANDARD_FIELDS = [
   {
+    target: 'sku',
+    displayLabel: 'Variant SKU',
+    aliases: ['sku', 'sku code', 'variant sku', 'product sku'],
+  },
+  {
+    target: 'unitPrice',
+    displayLabel: 'Variant Price',
+    aliases: ['variant price', 'variant_price', 'unitprice', 'unit_price'],
+  },
+  {
     target: 'name',
     displayLabel: 'Product Name',
     aliases: [
@@ -28,14 +38,11 @@ export const STANDARD_FIELDS = [
   },
   {
     target: 'externalKey',
-    displayLabel: 'Product Code / SKU',
+    displayLabel: 'Product Code (groups variants)',
     aliases: [
       'externalkey',
       'external key',
       'external_key',
-      'sku',
-      'sku code',
-      'product sku',
       'item code',
       'product code',
       'item_code',
