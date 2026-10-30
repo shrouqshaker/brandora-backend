@@ -1,87 +1,106 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
-import { AppHttpException } from '../../common/errors/app-http.exception';
-import { ErrorCode } from '../../common/errors/error-code';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client';
-import { STANDARD_FIELDS } from '../mapping-fields';
 import { RowValidationResult } from '../validation/row.types';
+import { combinationKey } from '../validation/row-validator';
 import {
   ExistingCatalogItem,
   ImportPlan,
   PlannedUpdate,
 } from './preview.types';
+import {
+  mergedOptions,
+  selectedOptions,
+  mergedImportAttributes,
+  importCategoryName,
+  ImportCategories,
+} from '../variant-import-policy';
+import { NormalizedRow } from '../validation/row.types';
 
 @Injectable()
 export class ImportPlanner {
+  productChanges(
+    data: NormalizedRow,
+    item: ExistingCatalogItem,
+    categories: ImportCategories = new Map(),
+  ): PlannedUpdate['changes'] {
+    const changes: PlannedUpdate['changes'] = {};
+    for (const field of [
+      'name',
+      'description',
+      'category',
+      'basePrice',
+    ] as const) {
+      const incoming = data[field];
+      const previous =
+        field === 'basePrice'
+          ? (item.basePrice?.toFixed(2) ?? null)
+          : item[field];
+      if (incoming != null && incoming !== previous)
+        changes[field] = { from: previous, to: incoming };
+    }
+    if (data.category) {
+      const name = importCategoryName(data.category);
+      const resolved = categories.get(name);
+      if (!resolved?.id || resolved.id !== item.categoryId)
+        changes.categoryId = {
+          from: item.categoryId ?? null,
+          to: resolved?.id ?? { create: name },
+        };
+    }
+    const options = mergedOptions(data.options ?? {}, item.options);
+    if (
+      combinationKey(options) !==
+      combinationKey((item.options ?? {}) as Record<string, unknown>)
+    )
+      changes.options = { from: item.options ?? {}, to: options };
+    const merged = mergedImportAttributes(data, item.attributes);
+    if (
+      combinationKey(merged) !==
+      combinationKey((item.attributes ?? {}) as Record<string, unknown>)
+    )
+      changes.attributes = {
+        from: item.attributes,
+        to: merged as Prisma.JsonObject,
+      };
+    return changes;
+  }
   plan(
     businessId: string,
     rows: RowValidationResult['validRows'],
     existing: ExistingCatalogItem[],
+    categories: ImportCategories = new Map(),
   ): ImportPlan {
-    const byKey = new Map(
-      existing
-        .filter(
-          (item) => item.businessId === businessId && item.externalKey !== null,
-        )
-        .map((item) => [item.externalKey!, item]),
-    );
     const plan: ImportPlan = { inserts: [], updates: [], unchanged: [] };
     for (const row of rows) {
-      const externalKey = row.data.externalKey ?? null;
-      const item = externalKey === null ? undefined : byKey.get(externalKey);
-      const { variantAttributes, attributes, ...standardData } = row.data;
-      const metadata =
-        variantAttributes === undefined ? {} : { variantAttributes };
-      const identity = { rowNumber: row.rowNumber, externalKey, ...metadata };
-      const attributeValues = Object.entries(attributes ?? {}).filter(
-        ([_key, value]) => value !== null,
+      const item = existing.find(
+        (p) =>
+          p.businessId === businessId && p.externalKey === row.data.externalKey,
       );
-      if (!item) {
-        plan.inserts.push({
-          ...identity,
-          action: 'INSERT',
-          data: {
-            ...standardData,
-            ...(attributeValues.length
-              ? { attributes: Object.fromEntries(attributeValues) }
-              : {}),
-          },
-        });
+      const selection = selectedOptions(row.data);
+      const variant = item?.variants?.find(
+        (v) =>
+          combinationKey(v.optionValues as Record<string, unknown>) ===
+          combinationKey(selection),
+      );
+      const identity = {
+        rowNumber: row.rowNumber,
+        externalKey: row.data.externalKey ?? null,
+        variantAttributes: row.data.variantAttributes,
+        ...(variant ? { variantId: variant.id } : {}),
+      };
+      if (!item || !variant) {
+        plan.inserts.push({ ...identity, action: 'INSERT', data: row.data });
         continue;
       }
-      const changes: PlannedUpdate['changes'] = {};
-      // Unmapped fields are absent from normalized data; mapped blanks are null.
-      for (const { target } of STANDARD_FIELDS) {
-        const incoming = row.data[target];
-        if (incoming === undefined || incoming === null) continue;
+      const changes = this.productChanges(row.data, item, categories);
+      for (const field of ['sku', 'unitPrice', 'stockQuantity'] as const) {
+        const incoming = row.data[field];
         const previous =
-          target === 'basePrice'
-            ? (item.basePrice?.toFixed(2) ?? null)
-            : item[target];
-        if (previous !== incoming)
-          changes[target] = { from: previous, to: incoming };
-      }
-      if (attributeValues.length) {
-        if (
-          item.attributes !== null &&
-          (typeof item.attributes !== 'object' ||
-            Array.isArray(item.attributes))
-        ) {
-          throw new AppHttpException(
-            ErrorCode.CATALOG_ATTRIBUTES_INVALID,
-            HttpStatus.CONFLICT,
-            'Existing catalog attributes must be a JSON object before merging mapped attributes',
-          );
-        }
-        const previous = item.attributes as Prisma.JsonObject | null;
-        const merged: Prisma.JsonObject = { ...(previous ?? {}) };
-        let changed = false;
-        for (const [key, value] of attributeValues) {
-          if (!Object.hasOwn(merged, key) || merged[key] !== value) {
-            merged[key] = value;
-            changed = true;
-          }
-        }
-        if (changed) changes.attributes = { from: previous, to: merged };
+          field === 'unitPrice'
+            ? (variant.unitPrice?.toFixed(2) ?? null)
+            : variant[field];
+        if (incoming != null && incoming !== previous)
+          changes[field] = { from: previous, to: incoming };
       }
       if (Object.keys(changes).length)
         plan.updates.push({

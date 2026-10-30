@@ -30,6 +30,7 @@
     "test:products:postgres": "npm run build && node verification/product-crud-postgres.cjs",
     "test:auth:postgres": "npm run build && node verification/auth-postgres.cjs",
     "test:auth-hardening:postgres": "npm run build && node verification/auth-hardening-postgres.cjs",
+    "test:variant-inventory:postgres": "npm run build && node --test verification/variant-inventory-import-postgres.cjs",
     "format": "prettier --write \"src/**/*.ts\" \"*.{ts,json,md}\" \"docs/**/*.md\" && prisma format",
     "format:check": "prettier --check \"src/**/*.ts\" \"*.{ts,json,md}\" \"docs/**/*.md\""
   },

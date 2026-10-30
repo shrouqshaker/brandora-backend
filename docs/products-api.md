@@ -1,9 +1,10 @@
 # Categories, Products and ProductVariants (Task 2)
 
-These APIs use Task 1's Category, CatalogItem and ProductVariant models. No schema
-or migration changes are required. The legacy `/catalog-items`, Inventory and
-Excel Import resource logic is unchanged. Task 3 requires a Bearer token and
-active OWNER membership on these routes; see [Authentication](auth-api.md).
+These APIs use Category, CatalogItem and ProductVariant models. The variant-only
+inventory upgrade removes product-level stock and upgrades Excel imports; see
+[Inventory](inventory-api.md), [Imports](imports-api.md) and the
+[migration/Orders coordination contract](variant-inventory-rollout.md).
+Bearer tokens and active OWNER membership are required; see [Authentication](auth-api.md).
 
 The lifecycle rules below cover soft deletion and explicit reactivation without
 introducing stock or order workflows.
@@ -60,8 +61,8 @@ are rejected for prices. Responses use fixed two-decimal strings or null, includ
 zero prices. No JavaScript floating-point arithmetic is used for money.
 
 externalKey, legacy category, stockQuantity, trackInventory, IDs and timestamps
-are not writable through this API. Existing externalKey/category/stock/tracking
-fields are preserved by metadata updates and deletion. `category` in responses
+are not writable through this API. Existing externalKey/category fields and all
+variant inventory are preserved by metadata updates and deletion. `category` in responses
 is the legacy category string, not the current name of the linked Category.
 
 Example:
@@ -131,7 +132,7 @@ invalid definition/combination state. External direct SQL writers must follow th
 same protocol for option-definition semantics; tenant and uniqueness constraints
 remain independently enforced by the database.
 
-Product DELETE soft-deactivates only the product. Variants, legacy stock, inventory
+Product DELETE soft-deactivates only the product. Variants, variant stock, inventory
 movements and import jobs remain intact. Repeated deletion succeeds. Reactivating
 the product through PATCH does not reactivate any inactive variants.
 
@@ -195,10 +196,10 @@ conflicts do not expose Prisma/SQL diagnostics.
 | VARIANT_OPTIONS_CONFLICT | 409  | Combination reserved for this product                                        |
 | PRODUCT_WRITE_CONFLICT   | 409  | Transaction contention or interactive-transaction timeout; refresh and retry |
 
-Unexpected errors retain the existing sanitized 500 response. There is no new
-authentication scheme, stock adjustment flow, order API or import upgrade here.
-The unchanged Excel importer may still create legacy CatalogItems without variants;
-automatic import-to-variant handling remains the separate Import Upgrade.
+Unexpected errors retain the existing sanitized 500 response. There is no Orders
+API here. Stock changes belong exclusively to InventoryService. Excel now creates
+or updates actual variants, and Catalog creates a Default Variant. Historical
+products without variants require explicit reconciliation; no automatic backfill.
 
 ## Verification
 

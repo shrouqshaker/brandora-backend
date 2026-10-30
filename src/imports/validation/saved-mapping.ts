@@ -36,7 +36,9 @@ export function parseSavedMapping(
     ) {
       if (
         typeof target !== 'string' ||
-        !/^[a-z][a-z0-9_]{0,63}$/.test(target) ||
+        (type === MappingType.ATTRIBUTE
+          ? !/^[a-z][a-z0-9_]{0,63}$/.test(target)
+          : !target.trim() || target !== target.trim() || target.length > 60) ||
         ['constructor', 'prototype', '__proto__'].includes(target)
       )
         throw new Error('Invalid saved attribute key');
@@ -55,5 +57,7 @@ export function parseSavedMapping(
   }
   if (!targets.has('STANDARD:name'))
     throw new Error('Missing saved name mapping');
+  if (!targets.has('STANDARD:externalKey'))
+    throw new Error('Reconfirm mapping with a product grouping code');
   return mapping;
 }

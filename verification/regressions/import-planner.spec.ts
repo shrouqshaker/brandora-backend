@@ -1,219 +1,229 @@
-import { Prisma } from '../../src/generated/prisma/client';
 import { ImportPlanner } from '../../src/imports/preview/import-planner';
-import { ExistingCatalogItem } from '../../src/imports/preview/preview.types';
-import { NormalizedRow } from '../../src/imports/validation/row.types';
+import { Prisma } from '../../src/generated/prisma/client';
+import {
+  checkImportDatabase,
+  mergedOptions,
+} from '../../src/imports/variant-import-policy';
 
-describe('Import planner', () => {
+describe('Variant import planning and scoped database conflict checks', () => {
   const planner = new ImportPlanner();
-  const businessId = 'business-a';
-  const item = (
-    overrides: Partial<ExistingCatalogItem> = {},
-  ): ExistingCatalogItem => ({
-    id: 'item-id',
-    businessId,
-    externalKey: 'SKU-001',
-    name: 'Shirt',
-    description: 'Original description',
-    category: 'Original category',
-    basePrice: new Prisma.Decimal('29.9'),
-    stockQuantity: 10,
-    attributes: {
-      material: 'Cotton',
-      color: 'Blue',
-      nested: { preserved: true },
-    },
-    ...overrides,
-  });
-  const plan = (
-    data: NormalizedRow,
-    existing: ExistingCatalogItem[] = [item()],
-  ) => planner.plan(businessId, [{ rowNumber: 4, data }], existing);
-
-  it('inserts a new code without matching by name', () => {
-    const result = plan({
-      externalKey: 'NEW',
-      name: 'Shirt',
-      basePrice: '29.90',
-    });
-    expect(result.inserts).toEqual([
+  const product: any = {
+    id: 'p',
+    businessId: 'b',
+    externalKey: 'P',
+    name: 'Tea',
+    description: null,
+    category: null,
+    basePrice: new Prisma.Decimal('5'),
+    attributes: null,
+    options: {},
+    isActive: true,
+    variants: [
       {
-        rowNumber: 4,
-        action: 'INSERT',
-        externalKey: 'NEW',
-        data: { externalKey: 'NEW', name: 'Shirt', basePrice: '29.90' },
+        id: 'v',
+        businessId: 'b',
+        catalogItemId: 'p',
+        optionValues: {},
+        sku: 'TEA',
+        unitPrice: null,
+        stockQuantity: 4,
+        trackInventory: true,
+        isActive: true,
       },
-    ]);
-  });
-
-  it.each([undefined, null])(
-    'inserts when externalKey is %s even if the name matches',
-    (externalKey) => {
-      expect(plan({ externalKey, name: 'Shirt' }).inserts[0].action).toBe(
-        'INSERT',
-      );
-    },
-  );
-
-  it('updates only fields that differ and formats database decimals exactly', () => {
-    expect(
-      plan({
-        externalKey: 'SKU-001',
-        name: 'New Shirt',
-        basePrice: '39.99',
-        stockQuantity: 0,
-      }).updates,
-    ).toEqual([
-      {
-        rowNumber: 4,
-        action: 'UPDATE',
-        externalKey: 'SKU-001',
-        catalogItemId: 'item-id',
-        changes: {
-          name: { from: 'Shirt', to: 'New Shirt' },
-          basePrice: { from: '29.90', to: '39.99' },
-          stockQuantity: { from: 10, to: 0 },
-        },
-      },
-    ]);
-  });
-
-  it('classifies equal decimal/standard/attribute values as unchanged', () => {
-    const result = plan({
-      externalKey: 'SKU-001',
-      name: 'Shirt',
-      basePrice: '29.90',
-      stockQuantity: 10,
-      attributes: { material: 'Cotton' },
-    });
-    expect(result.updates).toEqual([]);
-    expect(result.unchanged).toEqual([
-      {
-        rowNumber: 4,
-        action: 'UNCHANGED',
-        externalKey: 'SKU-001',
-        catalogItemId: 'item-id',
-      },
-    ]);
-  });
-
-  it('does not overwrite mapped blanks or unmapped standard fields', () => {
-    const result = plan({
-      externalKey: 'SKU-001',
-      name: 'Shirt',
-      description: null,
-      basePrice: null,
-      stockQuantity: null,
-    });
-    expect(result.unchanged).toHaveLength(1);
-    expect(result.updates).toEqual([]);
-  });
-
-  it('merges only non-blank attributes while preserving unmapped/nested values', () => {
-    const original = item();
-    const result = plan(
-      {
-        externalKey: 'SKU-001',
-        name: 'Shirt',
-        attributes: {
-          material: 'Linen',
-          color: null,
-          size: 'XL',
-          count: 0,
-          enabled: false,
-        },
-      },
-      [original],
-    );
-    expect(result.updates[0].changes.attributes).toEqual({
-      from: original.attributes,
-      to: {
-        material: 'Linen',
-        color: 'Blue',
-        nested: { preserved: true },
-        size: 'XL',
-        count: 0,
-        enabled: false,
-      },
-    });
-    expect(original.attributes).toEqual({
-      material: 'Cotton',
-      color: 'Blue',
-      nested: { preserved: true },
+    ],
+  };
+  const row: any = {
+    rowNumber: 2,
+    data: { externalKey: 'P', name: 'Tea', sku: 'TEA', options: {} },
+  };
+  it('matches a product code and its default variant', () => {
+    expect(planner.plan('b', [row], [product]).unchanged[0]).toMatchObject({
+      catalogItemId: 'p',
+      variantId: 'v',
     });
   });
-
-  it('adds non-blank attributes to null existing attributes', () => {
+  it('matches the same combination independently of JSON key ordering', () => {
+    const configured = {
+      ...product,
+      options: { Color: ['Red'], Size: ['M'] },
+      variants: [
+        { ...product.variants[0], optionValues: { Size: 'M', Color: 'Red' } },
+      ],
+    };
+    const incoming = {
+      ...row,
+      data: {
+        ...row.data,
+        options: { Color: ['Red'], Size: ['M'] },
+        variantAttributes: { Color: 'Red', Size: 'M' },
+      },
+    };
     expect(
-      plan(
-        {
-          externalKey: 'SKU-001',
-          name: 'Shirt',
-          attributes: { material: 'Cotton' },
-        },
-        [item({ attributes: null })],
-      ).updates[0].changes.attributes,
-    ).toEqual({ from: null, to: { material: 'Cotton' } });
+      planner.plan('b', [incoming], [configured]).unchanged[0].variantId,
+    ).toBe('v');
   });
-
-  it('keeps all-blank attributes unchanged and excludes blanks from new attribute objects', () => {
-    expect(
-      plan({
-        externalKey: 'SKU-001',
-        name: 'Shirt',
-        attributes: { material: null },
-      }).unchanged,
-    ).toHaveLength(1);
-    expect(
-      plan({ name: 'New', attributes: { material: null, count: 0 } }).inserts[0]
-        .data.attributes,
-    ).toEqual({ count: 0 });
+  it('does not match another business', () => {
+    expect(planner.plan('other', [row], [product]).inserts).toHaveLength(1);
   });
-
-  it('returns variant attributes as metadata without catalog changes or insert fields', () => {
-    const result = plan({
-      externalKey: 'SKU-001',
-      name: 'Shirt',
-      variantAttributes: { size: 'XL' },
-    });
-    expect(result.unchanged[0].variantAttributes).toEqual({ size: 'XL' });
-    const inserted = plan({ name: 'New', variantAttributes: { size: 'XL' } })
-      .inserts[0];
-    expect(inserted.variantAttributes).toEqual({ size: 'XL' });
-    expect(inserted.data).not.toHaveProperty('variantAttributes');
-  });
-
-  it('does not match the same SKU in a different business', () => {
+  it('plans insertion when an existing legacy product has no default variant', () => {
     expect(
-      plan({ externalKey: 'SKU-001', name: 'Shirt' }, [
-        item({ businessId: 'business-b' }),
-      ]).inserts,
+      planner.plan('b', [row], [{ ...product, variants: [] }]).inserts,
     ).toHaveLength(1);
   });
-
-  it('does not plan actions for catalog products absent from the workbook', () => {
-    const result = plan({ externalKey: 'SKU-001', name: 'Shirt' }, [
-      item(),
-      item({ id: 'missing-item', externalKey: 'MISSING' }),
-    ]);
+  it('plans variant stock updates, never product stock', () => {
     expect(
-      result.inserts.length + result.updates.length + result.unchanged.length,
-    ).toBe(1);
-    expect(JSON.stringify(result)).not.toContain('missing-item');
+      planner.plan(
+        'b',
+        [{ ...row, data: { ...row.data, stockQuantity: 8 } }],
+        [product],
+      ).updates[0].changes,
+    ).toEqual({ stockQuantity: { from: 4, to: 8 } });
   });
-
-  it.each(['legacy text', ['legacy array'], 7])(
-    'refuses to silently replace non-object catalog attributes: %j',
-    (attributes) => {
-      expect(() =>
-        plan(
+  it('blank/unmapped stock leaves inventory untouched', () => {
+    expect(
+      planner.plan(
+        'b',
+        [{ ...row, data: { ...row.data, stockQuantity: null } }],
+        [product],
+      ).unchanged,
+    ).toHaveLength(1);
+  });
+  it('compares decimal variant prices precisely', () => {
+    expect(
+      planner.plan(
+        'b',
+        [{ ...row, data: { ...row.data, unitPrice: '6.25' } }],
+        [product],
+      ).updates[0].changes.unitPrice,
+    ).toEqual({ from: null, to: '6.25' });
+  });
+  it('preserves existing attributes while merging mapped nonblank values', () => {
+    expect(
+      planner.plan(
+        'b',
+        [
           {
-            externalKey: 'SKU-001',
-            name: 'Shirt',
-            attributes: { material: 'Cotton' },
+            ...row,
+            data: {
+              ...row.data,
+              attributes: { material: 'cotton', ignored: null },
+            },
           },
-          [item({ attributes })],
-        ),
-      ).toThrow('Existing catalog attributes must be a JSON object');
-    },
-  );
+        ],
+        [{ ...product, attributes: { brand: 'local' } }],
+      ).updates[0].changes.attributes.to,
+    ).toEqual({ brand: 'local', material: 'cotton' });
+  });
+  it('extends allowed values without removing unimported selections', () => {
+    expect(mergedOptions({ size: ['M'] }, { size: ['S', 'L'] })).toEqual({
+      size: ['S', 'L', 'M'],
+    });
+  });
+  it('rejects implicit simple-to-configurable conversion', () => {
+    expect(() => mergedOptions({ size: ['M'] }, {})).toThrow();
+  });
+  it('validates an existing scoped SKU reservation', async () => {
+    const db: any = {
+      catalogItem: { findMany: jest.fn().mockResolvedValue([product]) },
+      productVariant: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([
+            { ...product.variants[0], catalogItemId: 'other' },
+          ]),
+      },
+    };
+    const r = await checkImportDatabase(
+      {
+        summary: { totalRows: 1, validRows: 1, invalidRows: 0, skippedRows: 0 },
+        validRows: [row],
+        invalidRows: [],
+      },
+      'b',
+      db,
+    );
+    expect(r.summary.invalidRows).toBe(1);
+    expect(db.productVariant.findMany.mock.calls[0][0].where.businessId).toBe(
+      'b',
+    );
+  });
+  it('rejects imports into inactive products', async () => {
+    const db: any = {
+      catalogItem: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([{ ...product, isActive: false }]),
+      },
+      productVariant: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    expect(
+      (
+        await checkImportDatabase(
+          {
+            summary: {
+              totalRows: 1,
+              validRows: 1,
+              invalidRows: 0,
+              skippedRows: 0,
+            },
+            validRows: [row],
+            invalidRows: [],
+          },
+          'b',
+          db,
+        )
+      ).validRows,
+    ).toHaveLength(0);
+  });
+  it('repairs category relation even when the legacy category string matches', () => {
+    const incoming = { ...row, data: { ...row.data, category: 'Clothes' } };
+    const current = { ...product, category: 'Clothes', categoryId: 'wrong' };
+    const categories = new Map([['Clothes', { name: 'Clothes', id: 'right' }]]);
+    expect(
+      planner.plan('b', [incoming], [current], categories).updates[0].changes
+        .categoryId,
+    ).toEqual({ from: 'wrong', to: 'right' });
+    expect(
+      planner.plan(
+        'b',
+        [incoming],
+        [{ ...current, categoryId: 'right' }],
+        categories,
+      ).unchanged,
+    ).toHaveLength(1);
+  });
+  it('previews normalized category creation without writing a category', () => {
+    const incoming = {
+      ...row,
+      data: { ...row.data, category: '  New   category  ' },
+    };
+    expect(
+      planner.plan('b', [incoming], [product]).updates[0].changes.categoryId,
+    ).toEqual({ from: null, to: { create: 'New category' } });
+  });
+  it('rejects oversized merged attributes before READY although each input fits', async () => {
+    const incoming = {
+      ...row,
+      data: { ...row.data, attributes: { second: 'b'.repeat(8500) } },
+    };
+    const previous = { ...product, attributes: { first: 'a'.repeat(8500) } };
+    const db: any = {
+      catalogItem: { findMany: jest.fn().mockResolvedValue([previous]) },
+      productVariant: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const result = await checkImportDatabase(
+      {
+        summary: { totalRows: 1, validRows: 1, invalidRows: 0, skippedRows: 0 },
+        validRows: [incoming],
+        invalidRows: [],
+      },
+      'b',
+      db,
+    );
+    expect(result.validRows).toHaveLength(0);
+    expect(result.invalidRows[0].errors[0]).toMatchObject({
+      field: 'attributes',
+      code: 'MERGED_ATTRIBUTES_INVALID',
+    });
+  });
 });

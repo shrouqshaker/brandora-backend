@@ -34,20 +34,20 @@ export class RowNormalizer {
       }
       const field = entry.target as StandardTarget;
       const text = value === null ? null : String(value);
-      if (field === 'basePrice') {
-        data.basePrice = null;
+      if (field === 'basePrice' || field === 'unitPrice') {
+        data[field] = null;
         if (text === null) continue;
         // No currency/grouping separators, exponent notation, or implicit rounding.
         if (!/^\+?(?:\d+(?:\.\d{1,2})?|\.\d{1,2})$/.test(text)) {
-          errors.push(this.priceError());
+          errors.push(this.priceError(field));
           continue;
         }
         const decimal = new Prisma.Decimal(text);
         if (decimal.greaterThanOrEqualTo('10000000000')) {
-          errors.push(this.priceError());
+          errors.push(this.priceError(field));
           continue;
         }
-        data.basePrice = decimal.toFixed(2);
+        data[field] = decimal.toFixed(2);
       } else if (field === 'stockQuantity') {
         data.stockQuantity = null;
         if (text === null) continue;
@@ -77,9 +77,9 @@ export class RowNormalizer {
     return typeof value === 'string' ? value.trim() || null : value;
   }
 
-  private priceError(): RowError {
+  private priceError(field: 'basePrice' | 'unitPrice'): RowError {
     return {
-      field: 'basePrice',
+      field,
       code: 'INVALID_DECIMAL',
       message:
         'Price must be a non-negative number with at most 2 decimal places and at most 10 integer digits',

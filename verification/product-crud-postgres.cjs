@@ -442,7 +442,7 @@ async function main() {
   const stockSnapshot = async () => ({
     products: await prisma.catalogItem.findMany({
       orderBy: { id: 'asc' },
-      select: { id: true, stockQuantity: true, trackInventory: true },
+      select: { id: true },
     }),
     variants: await prisma.productVariant.findMany({
       orderBy: { id: 'asc' },
@@ -576,9 +576,12 @@ async function main() {
     },
     201,
   );
+  const legacyVariant = await prisma.productVariant.findFirstOrThrow({
+    where: { catalogItemId: legacy.id, businessId: a },
+  });
   await call(
     'post',
-    `/businesses/${a}/catalog-items/${legacy.id}/inventory/adjust`,
+    `/businesses/${a}/products/${legacy.id}/variants/${legacyVariant.id}/inventory/adjust`,
     { quantity: 7 },
     201,
   );
@@ -604,8 +607,12 @@ async function main() {
   });
   assert.equal(retained.externalKey, 'LEGACY-1');
   assert.equal(retained.category, 'legacy text');
-  assert.equal(retained.stockQuantity, 7);
-  assert.equal(retained.trackInventory, false);
+  const retainedVariant = await prisma.productVariant.findUniqueOrThrow({
+    where: { id: legacyVariant.id },
+  });
+  assert.equal(retainedVariant.stockQuantity, 7);
+  assert.equal(retainedVariant.trackInventory, true);
+  assert.equal(Object.hasOwn(retained, 'stockQuantity'), false);
   assert.deepEqual(
     await prisma.inventoryMovement.findMany({
       where: { catalogItemId: legacy.id },

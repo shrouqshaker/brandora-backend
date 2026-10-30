@@ -24,7 +24,7 @@ describe('Excel mapping HTTP API (real workbook/storage, mocked database)', () =
   const path = `/imports/${importId}/mapping`;
   const headers = [
     'Item Name',
-    'SKU',
+    'Product Code',
     'Description',
     'Category',
     'Price',
@@ -162,7 +162,7 @@ describe('Excel mapping HTTP API (real workbook/storage, mocked database)', () =
         .map((column: { displayLabel: string }) => column.displayLabel),
     ).toEqual([
       'Product Name',
-      'Product Code / SKU',
+      'Product Code (groups variants)',
       'Description',
       'Category',
       'Price',
@@ -201,7 +201,7 @@ describe('Excel mapping HTTP API (real workbook/storage, mocked database)', () =
         ' Name ',
         'PRODUCT   NAME',
         'Sale Price',
-        'SKU Code',
+        'Product Code',
         'stock quantitiy',
       ]),
     );
@@ -224,7 +224,7 @@ describe('Excel mapping HTTP API (real workbook/storage, mocked database)', () =
   it.each([
     [
       'English shorthand',
-      ['item', 'sku code', 'description', 'category', 'sale price', 'qty'],
+      ['item', 'product code', 'description', 'category', 'sale price', 'qty'],
     ],
     [
       'English product fields',
@@ -310,7 +310,7 @@ describe('Excel mapping HTTP API (real workbook/storage, mocked database)', () =
       ),
     ).toEqual([
       'Product Name',
-      'Product Code / SKU',
+      'Product Code (groups variants)',
       'Description',
       'Category',
       'Price',
@@ -330,8 +330,8 @@ describe('Excel mapping HTTP API (real workbook/storage, mocked database)', () =
         'quantity',
         'qty',
         'الكمية',
-        'sku',
-        'sku code',
+        'external key',
+        'product code',
         'كود المنتج',
       ]),
     );
@@ -403,6 +403,7 @@ describe('Excel mapping HTTP API (real workbook/storage, mocked database)', () =
       { sourceColumn: 'Size', type: 'VARIANT_ATTRIBUTE', target: 'size' },
       { sourceColumn: 'Notes', type: 'IGNORE', target: null },
       { sourceColumn: 'Discount', type: 'UNMAPPED', target: null },
+      { sourceColumn: 'Product Code', type: 'STANDARD', target: 'externalKey' },
     ];
     const response = await request(app.getHttpServer())
       .patch(path)
@@ -415,10 +416,10 @@ describe('Excel mapping HTTP API (real workbook/storage, mocked database)', () =
       sourceColumnIndex: 1,
     });
     expect(response.body.mapping[1]).toEqual({
-      sourceColumn: 'SKU',
+      sourceColumn: 'Product Code',
       sourceColumnIndex: 2,
-      type: 'UNMAPPED',
-      target: null,
+      type: 'STANDARD',
+      target: 'externalKey',
     });
     expect(response.body.mapping[6]).toEqual({
       ...entries[1],
@@ -444,6 +445,27 @@ describe('Excel mapping HTTP API (real workbook/storage, mocked database)', () =
     const saved = await request(app.getHttpServer()).get(path).expect(200);
     expect(saved.body.mapping).toEqual(response.body.mapping);
   });
+
+  it.each(['Coffee Origin', 'حجم العبوة'])(
+    'accepts a dynamic option name %s without imposing a business type',
+    async (target) => {
+      const response = await request(app.getHttpServer())
+        .patch(path)
+        .send({
+          mapping: [
+            nameEntry,
+            {
+              sourceColumn: 'Product Code',
+              type: 'STANDARD',
+              target: 'externalKey',
+            },
+            { sourceColumn: 'Size', type: 'VARIANT_ATTRIBUTE', target },
+          ],
+        })
+        .expect(200);
+      expect(response.body.mapping[7].target).toBe(target);
+    },
+  );
 
   it('supports duplicate and blank headers by index without guessing their suggestions', async () => {
     const otherKey = await storage.save(
@@ -485,8 +507,8 @@ describe('Excel mapping HTTP API (real workbook/storage, mocked database)', () =
           {
             sourceColumn: 'Name',
             sourceColumnIndex: 2,
-            type: 'IGNORE',
-            target: null,
+            type: 'STANDARD',
+            target: 'externalKey',
           },
           {
             sourceColumn: '',
@@ -524,7 +546,10 @@ describe('Excel mapping HTTP API (real workbook/storage, mocked database)', () =
     ],
     [
       'duplicate standard target',
-      [nameEntry, { sourceColumn: 'SKU', type: 'STANDARD', target: 'name' }],
+      [
+        nameEntry,
+        { sourceColumn: 'Product Code', type: 'STANDARD', target: 'name' },
+      ],
     ],
     [
       'unknown standard target',
@@ -621,7 +646,16 @@ describe('Excel mapping HTTP API (real workbook/storage, mocked database)', () =
       prisma.importJob.findUnique.mockResolvedValue(null);
       await request(app.getHttpServer())
         [method](path)
-        .send({ mapping: [nameEntry] })
+        .send({
+          mapping: [
+            nameEntry,
+            {
+              sourceColumn: 'Product Code',
+              type: 'STANDARD',
+              target: 'externalKey',
+            },
+          ],
+        })
         .expect(404);
       expect(prisma.importJob.updateMany).not.toHaveBeenCalled();
     },
@@ -640,7 +674,16 @@ describe('Excel mapping HTTP API (real workbook/storage, mocked database)', () =
       });
       await request(app.getHttpServer())
         [method](path)
-        .send({ mapping: [nameEntry] })
+        .send({
+          mapping: [
+            nameEntry,
+            {
+              sourceColumn: 'Product Code',
+              type: 'STANDARD',
+              target: 'externalKey',
+            },
+          ],
+        })
         .expect(409);
       expect(prisma.importJob.updateMany).not.toHaveBeenCalled();
     },
@@ -650,7 +693,16 @@ describe('Excel mapping HTTP API (real workbook/storage, mocked database)', () =
     prisma.importJob.updateMany.mockResolvedValue({ count: 0 });
     await request(app.getHttpServer())
       .patch(path)
-      .send({ mapping: [nameEntry] })
+      .send({
+        mapping: [
+          nameEntry,
+          {
+            sourceColumn: 'Product Code',
+            type: 'STANDARD',
+            target: 'externalKey',
+          },
+        ],
+      })
       .expect(409);
   });
 
@@ -684,7 +736,16 @@ describe('Excel mapping HTTP API (real workbook/storage, mocked database)', () =
       );
     const response = await request(app.getHttpServer())
       .patch(path)
-      .send({ mapping: [nameEntry] })
+      .send({
+        mapping: [
+          nameEntry,
+          {
+            sourceColumn: 'Product Code',
+            type: 'STANDARD',
+            target: 'externalKey',
+          },
+        ],
+      })
       .expect(500);
     expect(JSON.stringify(response.body)).not.toContain(fileKey);
     expect(prisma.importJob.updateMany).not.toHaveBeenCalled();

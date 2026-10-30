@@ -7,6 +7,7 @@ export type NormalizedRow = Partial<
   stockQuantity?: number | null;
   attributes?: Record<string, ExcelValue>;
   variantAttributes?: Record<string, ExcelValue>;
+  options?: Record<string, string[]>;
 };
 
 export interface RowError {

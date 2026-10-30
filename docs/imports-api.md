@@ -1,254 +1,245 @@
-# Excel Import API for Mobile
+# Excel Products and Variants Import API
 
-Flow: Analyze -> Mapping -> POST Validate once -> GET Validation Results pages
--> GET Preview pages -> Execute -> GET Status to resume -> GET History later.
-Processing remains synchronous. Errors use stable codes for Mobile localization;
-backend messages remain English. No endpoint exposes fileKey or storage paths.
-Task 3 requires a Bearer token and active OWNER membership, including indirect
-ImportJob routes; see [Authentication](auth-api.md).
+Flow: Analyze → Mapping → Validate → Validation Results → Preview → Execute →
+Status/History. Processing remains synchronous. All routes require a Bearer JWT
+and current active OWNER membership. `/imports/:importId` routes resolve the
+job's business in the global guard; knowing an import UUID grants no access.
+Error bodies remain `{ statusCode, code, error, message }`. File keys, paths and
+database errors are never returned.
 
-## Shared pagination
+## Workbook identity and grouping
 
-All three paginated GET endpoints return:
+One row means one variant. `externalKey` is a required, trimmed, case-sensitive
+product grouping code, max 200 characters, unique per business. It is not the
+variant SKU. Name is required, trimmed, max 200. All rows sharing a code must
+agree on name, description, category, basePrice and mapped product attributes,
+including blanks; one conflicting/invalid row rejects its entire product group.
 
-```json
-{
-  "limit": 50,
-  "offset": 0,
-  "totalCount": 1180,
-  "hasMore": true,
-  "nextOffset": 50
-}
-```
+SKU is a separate optional standard field for simple products, required on every
+configurable variant. It is trimmed and case-sensitive, max 200, unique per
+business including inactive variants. The stable variant identity is the product
+code plus the exact option combination (JSON key order does not matter). An
+existing SKU cannot move to another product or combination. A mapped nonblank
+unreserved SKU can rename the same combination; omission/blank preserves its SKU.
+Names alone are never used to find existing products.
+For a Product created without an externalKey, assign its unique grouping code
+through the existing scoped `PATCH /catalog-items/:id` metadata API before an
+import update. Otherwise the new code inserts a new product; UUIDs and names
+are not fallback matches. Format product-code and SKU cells as Excel text to
+preserve leading zeroes.
 
-limit is an integer 1..100, default 50 for validation-results/preview and 20
-for history. offset is a non-negative safe integer (maximum 9007199254740991),
-default 0. Invalid UUIDs/query values and unknown GET query parameters return
-400 VALIDATION_ERROR. Final/out-of-range pages have hasMore=false and
-nextOffset=null. Otherwise, request offset=nextOffset to continue. Returned
-rows are page-specific; summaries/counts always cover the full import/business.
+For selected options, map a column as `VARIANT_ATTRIBUTE` with the option name as
+target. This now creates real Product.options and Variant.optionValues, rather
+than inert metadata. Arbitrary business-specific names of 1–60 trimmed characters
+are supported, including spaces, case and Unicode; reserved prototype keys are
+rejected. Every mapped option requires a nonblank value on every row. Numeric or
+boolean cells become strings. Definitions are the selected values observed in
+the product group. Product policy limits apply: max 10 keys, 50 values per key,
+100 characters per value and existing JSON byte bounds.
 
-For row results, totalCount=validRows+invalidRows. Combine all non-skipped rows
-in original Excel rowNumber order, page once, then split back into collections.
-Skipped rows do not occupy page positions. limit applies across all arrays,
-not separately to each one; offset counts eligible rows, not worksheet positions.
+No option columns means a simple product with a single `{}` Default Variant.
+Duplicate product/option combinations and duplicate SKUs anywhere in the workbook
+are invalid; all affected groups are excluded. A configurable import can extend
+the allowed values of existing options while retaining unimported definitions and
+variants. It cannot rename/remove option keys, convert a simple product, rewrite
+existing combinations, or reactivate inactive products/variants. Perform reviewed
+Product/Variant lifecycle changes separately.
 
-## Status
+### Example workbook
 
-`GET /imports/:importId` returns 200 with the unchanged compact contract:
+| Product Code | Name  | SKU          | Category | Price | Variant Price | Quantity | Color | Size |
+| ------------ | ----- | ------------ | -------- | ----- | ------------- | -------- | ----- | ---- |
+| SHIRT        | Shirt | SHIRT-RED-M  | Clothes  | 20.00 | 22.00         | 8        | Red   | M    |
+| SHIRT        | Shirt | SHIRT-BLUE-M | Clothes  | 20.00 |               | 12       | Blue  | M    |
 
-```json
-{
-  "id": "e5b31599-e582-4a36-966b-dda8389e2fb0",
-  "businessId": "f6bc7287-3285-4e19-a819-459c41f0a138",
-  "status": "COMPLETED_WITH_ERRORS",
-  "fileName": "Products.xlsx",
-  "sheetName": "Products",
-  "headerRow": 3,
-  "totalRows": 5,
-  "validRows": 3,
-  "invalidRows": 1,
-  "skippedRows": 1,
-  "insertedCount": 1,
-  "updatedCount": 1,
-  "failedCount": 1,
-  "createdAt": "2026-10-09T10:00:00.000Z",
-  "updatedAt": "2026-10-09T10:01:00.000Z"
-}
-```
+Map Product Code→externalKey, Name→name, SKU→sku, Category→category,
+Price→basePrice, Variant Price→unitPrice, Quantity→stockQuantity as STANDARD;
+map Color/Size as VARIANT_ATTRIBUTE targets `color`/`size` (or the desired names).
+This creates one product, two variants, one scoped category and two stock audits.
+Blank variant price inherits basePrice on create and preserves unitPrice on update.
 
-No mapping, errors, or storage details are returned. sheetName/headerRow may be
-null on older jobs. Missing jobs return 404 IMPORT_JOB_NOT_FOUND. Use status
-for app restart, network timeout, and execute timeout recovery. Before validation,
-Analyze has populated totalRows but other counters remain defaults.
+For a simple product use a separate workbook without option columns:
 
-## History
+| Product Code | Name | SKU   | Price | Quantity |
+| ------------ | ---- | ----- | ----- | -------- |
+| TEA          | Tea  | TEA-1 | 5.00  | 4        |
 
-`GET /businesses/:businessId/imports?limit=20&offset=0` now returns an envelope
-`{ pagination, items }`. items contains the same compact objects as Status.
-This replaces the previous raw array response. Ordering is createdAt descending,
-then id descending for equal timestamps. All queries and the database count are
-business-scoped; totalCount does not come from loading all jobs into memory.
-Missing business returns 404 BUSINESS_NOT_FOUND. An existing business with no
-jobs returns:
+Prices must be nonnegative decimal values with at most two fractional digits and
+ten integer digits; no separators, currency signs or rounding. Quantities are
+integers 0–2147483647. Mapped blank or unmapped stock never changes existing stock
+or tracking. Nonblank stock goes exclusively through InventoryService, enabling
+tracking and recording INITIAL_IMPORT/IMPORT_UPDATE. New variants without stock
+start untracked/null. Imports never disable tracking.
 
-```json
-{
-  "pagination": {
-    "limit": 20,
-    "offset": 0,
-    "totalCount": 0,
-    "hasMore": false,
-    "nextOffset": null
-  },
-  "items": []
-}
-```
+Category names normalize whitespace and compare case-insensitively within the
+business. An existing scoped Category is reused; otherwise it is created in the
+group transaction and assigned to categoryId. The incoming trimmed category text
+is also retained in the legacy category field. Blank category preserves an
+existing category; imports do not accept foreign Category UUID references.
+ATTRIBUTE columns merge nonblank values into product attributes and preserve
+unmapped values. These retain safe lowercase attribute-key rules.
 
-For a business with 57 jobs, offset=0 returns up to 20 objects with
-hasMore=true/nextOffset=20; offset=20 returns the next 20 with nextOffset=40;
-offset=40 returns 17 with hasMore=false/nextOffset=null. offset=100 returns
-items=[] with totalCount=57, hasMore=false, nextOffset=null. History is read live;
-new uploads can move offset-based pages while browsing.
+## Endpoints and success contracts
 
-## Mapping, sheets, and headers
-
-Analyze `POST /businesses/:businessId/imports/excel/analyze` accepts multipart
-file plus optional sheetName. Without sheetName it chooses the first worksheet.
-Choosing another sheet requires a new Analyze request and file upload with
-sheetName. headerRow is automatically detected and returned; there is no manual
-headerRow input/override.
-
-GET/PATCH `/imports/:importId/mapping` are available only in MAPPING_REQUIRED.
-Confirmation saves mapping and keeps MAPPING_REQUIRED. Once validation starts,
-mapping is locked. Changing mapping or correcting the file requires a new
-Analyze/import job. No reset/remapping endpoint is introduced.
-
-## Validate once
-
-`POST /imports/:importId/validate`, with no upload/body, validates the entire
-workbook, including duplicate external keys across all rows. It still persists
-full counters/errors and transitions MAPPING_REQUIRED -> VALIDATING -> READY,
-or FAILED on a processing failure. No Catalog/Inventory writes occur.
-limit/offset have no role on POST and do not affect processing. Success is 201:
+1. `POST /businesses/:businessId/imports/excel/analyze` (201): multipart `file`
+   `.xlsx`, optional sheetName. Returns `{ importJobId, status, sheetNames,
+selectedSheetName, headerRow, headers, sampleRows, totalRows }`. Existing file
+   validation and 10-MB limit remain. Header detection and first-sheet defaults
+   are unchanged; choose another sheet with a new upload. No manual headerRow.
+2. `GET /imports/:importId/mapping` (200): `{ importId, status, columns, mapping }`.
+   Suggestions distinguish SKU from product code; custom option mappings remain
+   explicit. Suggestions are advisory.
+3. `PATCH /imports/:importId/mapping` (200): `{ mapping: [...] }`, returning
+   `{ importId, status, mapping }`. Must map both name and externalKey. Each entry
+   uses sourceColumn, optional sourceColumnIndex, type and target. For duplicate
+   or blank headers supply its one-based index. Types STANDARD, ATTRIBUTE,
+   VARIANT_ATTRIBUTE, IGNORE, UNMAPPED remain; ignored/unmapped targets are null.
+   Confirmation keeps MAPPING_REQUIRED; validation locks mapping afterward.
 
 ```json
 {
-  "importId": "e5b31599-e582-4a36-966b-dda8389e2fb0",
-  "status": "READY",
-  "summary": {
-    "totalRows": 3,
-    "validRows": 1,
-    "invalidRows": 1,
-    "skippedRows": 1
-  }
-}
-```
-
-There is no pagination or row array in this compact response. Repeating POST
-after READY still returns 409; use the GET reader for pages.
-
-## Validation Results pages
-
-`GET /imports/:importId/validation-results?limit=1&offset=0` returns 200:
-
-```json
-{
-  "importId": "e5b31599-e582-4a36-966b-dda8389e2fb0",
-  "status": "READY",
-  "summary": {
-    "totalRows": 3,
-    "validRows": 1,
-    "invalidRows": 1,
-    "skippedRows": 1
-  },
-  "pagination": {
-    "limit": 1,
-    "offset": 0,
-    "totalCount": 2,
-    "hasMore": true,
-    "nextOffset": 1
-  },
-  "validRows": [
-    { "rowNumber": 4, "data": { "name": "Coffee", "basePrice": "49.90" } }
-  ],
-  "invalidRows": []
-}
-```
-
-In this workbook row 5 is skipped and row 6 is invalid. offset=1 returns
-validRows=[] and the invalid row 6 with its field/code/message errors;
-hasMore=false/nextOffset=null. The global summary stays identical. Empty error
-arrays with positive summary.invalidRows are expected when errors are off-page.
-
-totalRows=validRows+invalidRows+skippedRows. No state mutation, Excel decoding,
-normalization, validation, or catalog lookup occurs on GET. Validation writes
-an immutable versioned JSON snapshot through ImportFileStorage before READY.
-The existing ImportJob.fileKey locates that private sidecar; summary/invalid
-errors remain in ImportJob, and normalized valid rows are not copied into
-PostgreSQL. GET returns the snapshot's original counts, even after Execute
-updates the job's counters/errors. No schema migration is required.
-
-Results are readable in READY, IMPORTING, COMPLETED, COMPLETED_WITH_ERRORS,
-and FAILED/CANCELLED if a successful validation snapshot exists. Missing jobs
-return 404 IMPORT_JOB_NOT_FOUND. Pre-validation states, failed validation, or
-missing snapshots return 409 IMPORT_VALIDATION_RESULTS_UNAVAILABLE. This also
-applies to older READY jobs that never saved a snapshot; no automatic backfill
-is implemented. Corrupt snapshots/storage read failures return a safe 500.
-
-Snapshots persist across restarts in IMPORT_STORAGE_DIR and must be retained
-with their workbooks. Local storage must be shared/persistent when deploying
-multiple instances. No automatic expiry/recovery is added. Paging currently
-loads the snapshot JSON in memory, but never reruns validation. The storage
-abstraction can be implemented with object storage later.
-
-## Preview pages
-
-`GET /imports/:importId/preview?limit=2&offset=2` returns 200 only for READY jobs.
-It revalidates the entire workbook and plans every valid row against the current
-catalog before paging. Collections remain inserts, updates, unchanged, invalidRows.
-No database/file writes or status changes occur. Example: row 4 INSERT, row 5
-UPDATE, row 6 UNCHANGED, row 7 skipped, row 8 invalid. The second page contains
-rows 6 and 8:
-
-```json
-{
-  "importId": "e5b31599-e582-4a36-966b-dda8389e2fb0",
-  "status": "READY",
-  "summary": {
-    "totalRows": 5,
-    "validRows": 3,
-    "invalidRows": 1,
-    "skippedRows": 1,
-    "willInsert": 1,
-    "willUpdate": 1,
-    "unchanged": 1
-  },
-  "pagination": {
-    "limit": 2,
-    "offset": 2,
-    "totalCount": 4,
-    "hasMore": false,
-    "nextOffset": null
-  },
-  "inserts": [],
-  "updates": [],
-  "unchanged": [
+  "mapping": [
     {
-      "rowNumber": 6,
-      "action": "UNCHANGED",
-      "catalogItemId": "c037b8d0-bdc1-483b-9b21-702f68c840de",
-      "externalKey": "SKU-003"
-    }
-  ],
-  "invalidRows": [
+      "sourceColumn": "Product Code",
+      "sourceColumnIndex": 1,
+      "type": "STANDARD",
+      "target": "externalKey"
+    },
     {
-      "rowNumber": 8,
-      "errors": [
-        {
-          "field": "name",
-          "code": "REQUIRED",
-          "message": "Product name is required"
-        }
-      ]
+      "sourceColumn": "Name",
+      "sourceColumnIndex": 2,
+      "type": "STANDARD",
+      "target": "name"
+    },
+    {
+      "sourceColumn": "SKU",
+      "sourceColumnIndex": 3,
+      "type": "STANDARD",
+      "target": "sku"
+    },
+    {
+      "sourceColumn": "Color",
+      "sourceColumnIndex": 8,
+      "type": "VARIANT_ATTRIBUTE",
+      "target": "color"
     }
   ]
 }
 ```
 
-summary.invalidRows=1 and this page shows that row. offset=0 shows INSERT/UPDATE
-with empty unchanged/invalidRows arrays and the same summary; hasMore=true and
-nextOffset=2. willInsert+willUpdate+unchanged=validRows. Preview is advisory,
-recomputed on each request, and catalog edits can change action categories
-between pages. It is not a locked snapshot. Pagination reduces payload size,
-not workbook memory or processing time. Execute still independently processes
-all rows, never just a preview page.
+4. `POST /imports/:importId/validate` (201): no upload/body required. Returns
+   `{ importId, status: "READY", summary: { totalRows, validRows, invalidRows,
+skippedRows } }`. Validates the entire workbook and reads current scoped
+   product/variant/SKU state. Does not write products or stock. READY can contain
+   invalid groups; inspect results. Repeating validation returns 409.
+5. `GET /imports/:importId/validation-results?limit=50&offset=0` (200):
+   `{ importId, status, summary, pagination, validRows, invalidRows }`. Reads the
+   retained validation snapshot without rerunning processing. Valid rows include
+   `rowNumber`, `data` with sku/unitPrice/options/variantAttributes as mapped;
+   invalid rows include `rowNumber`, `errors: [{ field, code, message }]`.
+6. `GET /imports/:importId/preview?limit=50&offset=0` (200), READY only:
+   `{ importId, status, summary, pagination, inserts, updates, unchanged,
+invalidRows }`. Summary adds willInsert, willUpdate, unchanged. Actions count
+   **variant rows**, not distinct products. Existing actions include catalogItemId
+   and variantId; UPDATE changes describe product and variant differences.
+   Rebuilds the full workbook, checks current DB conflicts and makes no writes.
+   Preview is advisory: execution repeats checks under locks.
+7. `POST /imports/:importId/execute` (200), READY only:
+   `{ importId, status, summary, inserted, updated, unchanged, failedRows,
+invalidRows }`. Executed rows include `{ rowNumber, externalKey, catalogItemId,
+variantId }`. Summary adds insertedCount, updatedCount, failedCount,
+   unchangedCount. Failed rows include rowNumber/code/message. These arrays are
+   the complete execution result; they are not paginated.
+8. `GET /imports/:importId` (200): compact persisted status/counters and timestamps,
+   unchanged response contract; excludes mapping, full errors and file storage.
+9. `GET /businesses/:businessId/imports?limit=20&offset=0` (200):
+   `{ pagination, items }`, items use the same compact Status shape. Orders by
+   createdAt descending then id descending; no storage paths or private errors.
 
-## Catalog contract
+## Pagination
 
-Create/PATCH support externalKey, category, attributes, isActive, name,
-description, and basePrice. Responses include category, stockQuantity,
-trackInventory, and isActive. externalKey is optional for inserts; unkeyed Excel
-rows always propose inserts. Catalog CRUD cannot write stockQuantity or
-trackInventory. Inventory writes belong to InventoryService with audit records.
-Images and actual variants remain future scope. See [Catalog API](catalog-api.md).
+GET validation-results/preview/history retain `{ limit, offset, totalCount,
+hasMore, nextOffset }`. Limit range 1–100; defaults 50 for row readers, 20 for
+history. Offset is a nonnegative safe integer. Unknown query fields and invalid
+UUIDs return 400 VALIDATION_ERROR. Final/out-of-range pages have hasMore false,
+nextOffset null and empty arrays as appropriate.
+
+Row pages combine valid and invalid non-skipped Excel rows in rowNumber order,
+page once, then split into collections. Limit applies across the collections,
+not individually. Counts/summary always cover the full workbook. Pagination is
+not a way to execute only selected rows.
+
+## Transactions, repeat execution and partial failures
+
+READY→IMPORTING is claimed atomically; only one request executes a job. Execution
+uses serializable transactions per product group, with an advisory identity lock
+for first insertion and the same parent-first lock as Product/Inventory writers.
+Category, product, all variants, stock and movements for that group commit or roll
+back together. A rejected group does not leave partial variants or stock. Other
+groups can succeed. Uniqueness races fail safely rather than duplicate identities.
+
+COMPLETED means no invalid/failed rows. Otherwise successful processing ends
+COMPLETED_WITH_ERRORS. Infrastructure/workbook/job-level failures end FAILED when
+the database can persist that state. Earlier committed groups remain. Counters
+are row-based. HTTP failure is not evidence that nothing committed; GET Status
+after a timeout before taking action.
+
+Completed/failed jobs cannot be replayed or remapped. Use a new corrected upload;
+stable codes/combinations update existing identities instead of duplicating them.
+Explicit stock cells are absolute sets and can intentionally replace later stock
+when submitted in a _new_ job. Blank stock is the safe choice for metadata-only
+reimports. Per-job row references prevent duplicate stock writes for that same
+operation. A forced process exit can leave IMPORTING with stale counters: there
+is no durable worker or automatic takeover. Investigate committed records/audits
+before approving a new import; never blindly switch an old job back to READY.
+
+Correct workbook/mapping errors with a new job. Scoped database row errors
+include `MERGED_ATTRIBUTES_INVALID`, `PRODUCT_INACTIVE`, `VARIANT_INACTIVE`,
+`SKU_RESERVED`, `OPTIONS_CONFLICT`. Workbook errors include `DUPLICATE_SKU`,
+`DUPLICATE_COMBINATION`, `CONFLICTING_PRODUCT_ROWS`, `PRODUCT_GROUP_INVALID`.
+These errors identify excluded product groups.
+Runtime conflicts use EXECUTION_CONFLICT; other group failures use
+ROW_EXECUTION_FAILED. Infrastructure details remain private.
+
+## Android changes and rollout
+
+Keep all existing route names and pagination envelopes. Separate product code
+and SKU UI fields; require product code, and SKU for configurable rows. Render
+option definitions/selections as real variants. Allow repeated product codes,
+show group-wide errors, use variantId in execution/preview models, interpret
+counts as variant rows, and never assume a blank stock cell means zero.
+Reconfirm or replace pre-upgrade mappings/jobs; no promise is made that old inert
+variant mappings can be executed with their previous meaning.
+New validation snapshots use internal version 2. Version 1 snapshots return
+409 IMPORT_VALIDATION_RESULTS_UNAVAILABLE; they are not presented as real variant
+validation results. Create a new upload/mapping rather than interpreting an old
+snapshot as the upgraded contract.
+
+Local filesystem storage is unchanged and remains temporary on Railway without
+a durable volume/object store. Missing files/snapshots yield safe errors; this
+upgrade does not make import storage production-durable. See the separate
+[migration and scoped cleanup approval plan](variant-inventory-rollout.md).
+
+## Import audit clarifications
+
+Validation checks the final merged product attributes, including retained keys,
+against the 16384 UTF-8 byte and nesting limits before READY. Invalid product
+groups remain excluded from preview and execution.
+
+Category resolution uses the same business-scoped PostgreSQL normalization in
+validation, preview and execution. An UPDATE can repair categoryId even when the
+legacy category string is unchanged. changes.categoryId.to is an existing UUID
+or { "create": "Normalized category name" } when execution must create it;
+Android must handle this object as a proposed creation, not a UUID. Reads never
+create categories. Blank categories preserve the current relation.
+
+Preview uses one repeatable-read database snapshot. Execution rechecks each
+group under serializable locks. Definitely aborted serialization conflicts are
+retried at most three attempts with new transactions; unknown commit/network
+failures are never blindly replayed. Unchanged metadata with blank stock does
+not touch product or variant updatedAt. Explicit stock retains its audit rules.
+
+Analyze totalRows counts non-empty data rows; validation totalRows includes
+physical blank data rows and reports those separately in skippedRows. Automatic
+header detection is heuristic; ambiguous layouts need a clean header row and a
+new upload. Mixed simple/configurable products use separate workbooks.

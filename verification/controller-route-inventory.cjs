@@ -74,7 +74,9 @@ function controllerRoutes() {
 function verifyRoutePolicy({ verb, route, scope, guards }) {
   const { AuthRateGuard } = require('../dist/auth/auth-rate.guard');
   let expected;
-  if (verb === 'POST' && publicPaths.has(route)) expected = 'public';
+  if (verb === 'GET' && route === '/.well-known/assetlinks.json')
+    expected = 'public';
+  else if (verb === 'POST' && publicPaths.has(route)) expected = 'public';
   else if (
     (route === '/auth/me' && verb === 'GET') ||
     (route === '/auth/logout-all' && verb === 'POST') ||
@@ -87,7 +89,7 @@ function verifyRoutePolicy({ verb, route, scope, guards }) {
     expected = ['POST', 'PATCH'].includes(verb) ? 'body' : 'query';
   assert.ok(expected, `No reviewed policy for ${verb} ${route}`);
   assert.equal(scope, expected, `${verb} ${route}`);
-  if (expected === 'public')
+  if (expected === 'public' && publicPaths.has(route))
     assert.ok(
       guards.includes(AuthRateGuard),
       `Missing rate guard: ${verb} ${route}`,
@@ -103,11 +105,11 @@ function verifyControllerInventory(routes = controllerRoutes()) {
   );
   assert.equal(
     routes.length,
-    48,
+    49,
     'Review the policy and endpoint inventory when adding routes',
   );
   const publicCount = routes.filter((r) => r.scope === 'public').length;
-  assert.equal(publicCount, 6);
+  assert.equal(publicCount, 7);
   return {
     routes: routes.length,
     protected: routes.length - publicCount,

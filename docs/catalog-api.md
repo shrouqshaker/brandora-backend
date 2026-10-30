@@ -24,7 +24,10 @@ PATCH requires businessId and at least one editable field. Both accept:
 stockQuantity, trackInventory, id, createdAt, updatedAt, and unknown fields are
 rejected. Metadata besides name and externalKey is not automatically trimmed. Prices remain
 Decimal in storage and serialize as strings, potentially omitting trailing
-zeros. New items have stockQuantity=null and trackInventory=false.
+zeros. New items atomically create one Default Variant with null stock and
+tracking disabled. Stock fields are removed from CatalogItem responses; use
+Products/Variants to read inventory and the [variant inventory API](inventory-api.md)
+to change it. Existing legacy rows without variants are not backfilled.
 
 Create returns HTTP 201. Get One, PATCH, and DELETE return HTTP 200 with the same
 full record shape; List returns an array of these records, without count metadata.
@@ -38,9 +41,9 @@ Relations such as inventoryMovements are not included automatically.
   "name": "Coffee",
   "description": "Freshly roasted coffee",
   "category": "Drinks",
+  "categoryId": null,
+  "options": {},
   "basePrice": "49.9",
-  "trackInventory": false,
-  "stockQuantity": null,
   "attributes": { "origin": "Egypt" },
   "isActive": true,
   "createdAt": "2026-10-08T10:00:00.000Z",

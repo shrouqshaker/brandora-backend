@@ -144,8 +144,6 @@ model CatalogItem {
   categoryRecord     Category?           @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict, onUpdate: Restrict)
   options            Json                @default("{}") @db.JsonB
   basePrice          Decimal?            @db.Decimal(12, 2)
-  trackInventory     Boolean             @default(false)
-  stockQuantity      Int?
   attributes         Json?               @db.JsonB
   isActive           Boolean             @default(true)
   createdAt          DateTime            @default(now())
@@ -177,21 +175,23 @@ model Category {
 }
 
 model ProductVariant {
-  id             String      @id @default(uuid()) @db.Uuid
-  businessId     String      @db.Uuid
-  business       Business    @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  catalogItemId  String      @db.Uuid
-  catalogItem    CatalogItem @relation(fields: [businessId, catalogItemId], references: [businessId, id], onDelete: Restrict, onUpdate: Restrict)
-  sku            String?     @db.VarChar(200)
-  optionValues   Json        @default("{}") @db.JsonB
-  unitPrice      Decimal?    @db.Decimal(12, 2)
-  trackInventory Boolean     @default(false)
-  stockQuantity  Int?
-  isActive       Boolean     @default(true)
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  id                 String              @id @default(uuid()) @db.Uuid
+  businessId         String              @db.Uuid
+  business           Business            @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  catalogItemId      String              @db.Uuid
+  catalogItem        CatalogItem         @relation(fields: [businessId, catalogItemId], references: [businessId, id], onDelete: Restrict, onUpdate: Restrict)
+  sku                String?             @db.VarChar(200)
+  optionValues       Json                @default("{}") @db.JsonB
+  unitPrice          Decimal?            @db.Decimal(12, 2)
+  trackInventory     Boolean             @default(false)
+  stockQuantity      Int?
+  isActive           Boolean             @default(true)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  inventoryMovements InventoryMovement[]
 
   // PostgreSQL permits multiple NULL SKUs; inactive rows retain their SKU.
+  @@unique([businessId, catalogItemId, id])
   @@unique([businessId, sku])
   // JSONB equality ignores object key order; inactive combinations stay reserved.
   @@unique([businessId, catalogItemId, optionValues], map: "ProductVariant_parent_optionValues_key")
@@ -226,21 +226,29 @@ enum InventoryMovementType {
 }
 
 model InventoryMovement {
-  id             String                @id @default(uuid()) @db.Uuid
-  businessId     String                @db.Uuid
-  business       Business              @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  catalogItemId  String                @db.Uuid
-  catalogItem    CatalogItem           @relation(fields: [catalogItemId], references: [id], onDelete: Restrict)
-  type           InventoryMovementType
-  quantityBefore Int?
-  quantityAfter  Int
-  quantityDelta  Int
-  referenceType  String?               @db.VarChar(50)
-  referenceId    String?               @db.VarChar(200)
-  createdAt      DateTime              @default(now())
+  // SQL-only partial uniqueness reserves each ORDER_LINE per business/type.
+  id                String                @id @default(uuid()) @db.Uuid
+  businessId        String                @db.Uuid
+  business          Business              @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  catalogItemId     String                @db.Uuid
+  catalogItem       CatalogItem           @relation(fields: [businessId, catalogItemId], references: [businessId, id], onDelete: Restrict, onUpdate: Restrict)
+  variantId         String                @db.Uuid
+  variant           ProductVariant        @relation(fields: [businessId, catalogItemId, variantId], references: [businessId, catalogItemId, id], onDelete: Restrict, onUpdate: Restrict)
+  type              InventoryMovementType
+  quantityBefore    Int?
+  quantityAfter     Int?
+  quantityDelta     Int
+  trackingBefore    Boolean
+  trackingAfter     Boolean
+  requestedQuantity Int?
+  referenceType     String?               @db.VarChar(50)
+  referenceId       String?               @db.VarChar(200)
+  createdAt         DateTime              @default(now())
 
+  @@unique([businessId, variantId, type, referenceType, referenceId], map: "InventoryMovement_operation_key")
   @@index([businessId, createdAt])
   @@index([catalogItemId, createdAt])
+  @@index([businessId, variantId, createdAt])
   @@index([businessId, referenceType, referenceId])
 }
 

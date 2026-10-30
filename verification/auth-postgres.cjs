@@ -70,12 +70,8 @@ async function main() {
       [legacyId],
     );
     await beforeAuth.query(
-      'INSERT INTO "CatalogItem" (id,"businessId",name,"stockQuantity","trackInventory","updatedAt") VALUES ($1,$2,\'Historical item\',12,true,now())',
+      'INSERT INTO "CatalogItem" (id,"businessId",name,"stockQuantity","trackInventory","updatedAt") VALUES ($1,$2,\'Historical item\',NULL,false,now())',
       [legacyItem, legacyId],
-    );
-    await beforeAuth.query(
-      'INSERT INTO "InventoryMovement" (id,"businessId","catalogItemId",type,"quantityAfter","quantityDelta") VALUES ($1,$2,$3,\'INITIAL_IMPORT\',12,12)',
-      [randomUUID(), legacyId, legacyItem],
     );
     const tables = [
       'Business',
@@ -92,7 +88,7 @@ async function main() {
       for (const table of tables) {
         result[table] = (
           await beforeAuth.query(
-            `SELECT to_jsonb(t) AS row FROM "${table}" t ORDER BY to_jsonb(t)::text`,
+            `SELECT ${table === 'CatalogItem' ? "to_jsonb(t) - ARRAY['stockQuantity','trackInventory']" : 'to_jsonb(t)'} AS row FROM "${table}" t ORDER BY to_jsonb(t)::text`,
           )
         ).rows;
       }
@@ -455,12 +451,12 @@ async function main() {
     ],
     [
       'post',
-      `/businesses/${a.id}/catalog-items/${product.id}/inventory/adjust`,
+      `/businesses/${a.id}/products/${product.id}/variants/${variant.id}/inventory/adjust`,
       { quantity: 9 },
     ],
     [
       'get',
-      `/businesses/${a.id}/catalog-items/${product.id}/inventory/movements`,
+      `/businesses/${a.id}/products/${product.id}/variants/${variant.id}/inventory/movements`,
     ],
     ['get', `/businesses/${a.id}/inventory/movements`],
     ['post', `/businesses/${a.id}/imports/excel/analyze`],
@@ -609,15 +605,17 @@ async function main() {
     await sql.end();
   }
   assert.equal(
-    (await db.catalogItem.findUniqueOrThrow({ where: { id: product.id } }))
-      .stockQuantity,
-    null,
+    Object.hasOwn(
+      await db.catalogItem.findUniqueOrThrow({ where: { id: product.id } }),
+      'stockQuantity',
+    ),
+    false,
   );
-  assert.equal(await db.inventoryMovement.count(), 1);
+  assert.equal(await db.inventoryMovement.count(), 0);
   assert.equal(
     (await db.catalogItem.findUniqueOrThrow({ where: { id: legacyItem } }))
-      .stockQuantity,
-    12,
+      .name,
+    'Historical item',
   );
   // Only invalid credentials are used to exhaust the endpoint's separate limiter.
   let limited = false;
