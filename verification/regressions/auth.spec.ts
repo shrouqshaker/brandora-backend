@@ -315,6 +315,7 @@ describe('Complete controller authorization policy inventory', () => {
     ]).toContain(scope);
     if (scope === 'public')
       expect([
+        'AppLinksController.assetLinks',
         'AuthController.register',
         'AuthController.login',
         'AuthController.refresh',
@@ -323,8 +324,8 @@ describe('Complete controller authorization policy inventory', () => {
         'AuthController.resetPassword',
       ]).toContain(label);
   });
-  it('covers all 48 current endpoints and only six public token/credential operations', () => {
-    expect(routes).toHaveLength(48);
-    expect(routes.filter((route) => route.scope === 'public')).toHaveLength(6);
+  it('covers 49 endpoints with six public Auth operations and public App Links', () => {
+    expect(routes).toHaveLength(49);
+    expect(routes.filter((route) => route.scope === 'public')).toHaveLength(7);
   });
 });

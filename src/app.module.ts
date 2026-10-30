@@ -8,8 +8,10 @@ import { CategoriesModule } from './categories/categories.module';
 import { ProductsModule } from './products/products.module';
 import { VariantsModule } from './variants/variants.module';
 import { AuthModule } from './auth/auth.module';
+import { AppLinksController } from './app-links.controller';
 
 @Module({
+  controllers: [AppLinksController],
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
