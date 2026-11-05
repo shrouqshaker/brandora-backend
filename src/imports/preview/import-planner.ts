@@ -2,11 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client';
 import { RowValidationResult } from '../validation/row.types';
 import { combinationKey } from '../validation/row-validator';
-import {
-  ExistingCatalogItem,
-  ImportPlan,
-  PlannedUpdate,
-} from './preview.types';
+import { ExistingProduct, ImportPlan, PlannedUpdate } from './preview.types';
 import {
   mergedOptions,
   selectedOptions,
@@ -20,7 +16,7 @@ import { NormalizedRow } from '../validation/row.types';
 export class ImportPlanner {
   productChanges(
     data: NormalizedRow,
-    item: ExistingCatalogItem,
+    item: ExistingProduct,
     categories: ImportCategories = new Map(),
   ): PlannedUpdate['changes'] {
     const changes: PlannedUpdate['changes'] = {};
@@ -67,7 +63,7 @@ export class ImportPlanner {
   plan(
     businessId: string,
     rows: RowValidationResult['validRows'],
-    existing: ExistingCatalogItem[],
+    existing: ExistingProduct[],
     categories: ImportCategories = new Map(),
   ): ImportPlan {
     const plan: ImportPlan = { inserts: [], updates: [], unchanged: [] };
@@ -106,6 +102,7 @@ export class ImportPlanner {
         plan.updates.push({
           ...identity,
           action: 'UPDATE',
+          productId: item.id,
           catalogItemId: item.id,
           changes,
         });
@@ -113,6 +110,7 @@ export class ImportPlanner {
         plan.unchanged.push({
           ...identity,
           action: 'UNCHANGED',
+          productId: item.id,
           catalogItemId: item.id,
         });
     }

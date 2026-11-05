@@ -85,8 +85,6 @@ function verifyRoutePolicy({ verb, route, scope, guards }) {
     expected = 'identity';
   else if (route.includes(':importId')) expected = 'import';
   else if (route.includes(':businessId')) expected = 'params';
-  else if (route.startsWith('/catalog-items'))
-    expected = ['POST', 'PATCH'].includes(verb) ? 'body' : 'query';
   assert.ok(expected, `No reviewed policy for ${verb} ${route}`);
   assert.equal(scope, expected, `${verb} ${route}`);
   if (expected === 'public' && publicPaths.has(route))
@@ -108,7 +106,9 @@ function verifyControllerInventory(routes = controllerRoutes()) {
     49,
     'Review the policy and endpoint inventory when adding routes',
   );
-  const publicCount = routes.filter((r) => r.scope === 'public').length;
+  const publicCount = routes.filter(
+    (r) => r.scope === 'public',
+  ).length;
   assert.equal(publicCount, 7);
   return {
     routes: routes.length,

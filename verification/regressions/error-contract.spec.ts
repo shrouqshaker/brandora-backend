@@ -30,6 +30,7 @@ describe('Global HTTP error contract (real application modules, mocked persisten
   let buffer: Buffer;
   const id = 'f6bc7287-3285-4e19-a819-459c41f0a138';
   const uploadPath = `/businesses/${id}/imports/excel/analyze`;
+  const productsPath = `/businesses/${id}/products`;
   const storage = {
     save: jest.fn(),
     read: jest.fn(),
@@ -40,13 +41,23 @@ describe('Global HTTP error contract (real application modules, mocked persisten
   };
   const tx = {
     $queryRaw: jest.fn(),
-    productVariant: { findFirst: jest.fn(), update: jest.fn() },
-    catalogItem: { findFirst: jest.fn(), updateMany: jest.fn() },
+    business: { findUnique: jest.fn() },
+    productVariant: {
+      findFirst: jest.fn(),
+      update: jest.fn(),
+      create: jest.fn(),
+      groupBy: jest.fn(),
+    },
+    product: {
+      create: jest.fn(),
+      findFirst: jest.fn(),
+      updateMany: jest.fn(),
+    },
     inventoryMovement: { create: jest.fn() },
   };
   const prisma = {
     business: { findUnique: jest.fn() },
-    catalogItem: { create: jest.fn(), findMany: jest.fn() },
+    product: { create: jest.fn(), findMany: jest.fn() },
     importJob: {
       findUnique: jest.fn(),
       updateMany: jest.fn(),
@@ -61,7 +72,7 @@ describe('Global HTTP error contract (real application modules, mocked persisten
     @Get('inventory-invalid')
     invalidInventory() {
       return inventory.setQuantity(
-        { id, businessId: id, catalogItemId: id },
+        { id, businessId: id, productId: id },
         -1,
         InventoryMovementType.IMPORT_UPDATE,
       );
@@ -70,7 +81,7 @@ describe('Global HTTP error contract (real application modules, mocked persisten
     @Get('inventory-conflict')
     inventoryConflict() {
       return inventory.setQuantity(
-        { id, businessId: id, catalogItemId: id },
+        { id, businessId: id, productId: id },
         9,
         InventoryMovementType.IMPORT_UPDATE,
       );
@@ -165,7 +176,21 @@ describe('Global HTTP error contract (real application modules, mocked persisten
       ],
     };
     prisma.business.findUnique.mockResolvedValue({ id });
-    prisma.catalogItem.create.mockResolvedValue({ id, name: 'Shirt' });
+    tx.business.findUnique.mockResolvedValue({ id });
+    tx.product.create = prisma.product.create;
+    prisma.product.create.mockResolvedValue({ id, name: 'Shirt' });
+    tx.productVariant.create.mockResolvedValue({ id });
+    tx.productVariant.groupBy.mockResolvedValue([]);
+    tx.product.findFirst.mockResolvedValue({
+      id,
+      businessId: id,
+      name: 'Shirt',
+      options: {},
+      isActive: true,
+      basePrice: null,
+      variants: [],
+      _count: { variants: 0 },
+    });
     prisma.importJob.findUnique.mockImplementation(async () => job);
     prisma.importJob.updateMany.mockResolvedValue({ count: 1 });
     prisma.importJob.create.mockResolvedValue({
@@ -190,7 +215,7 @@ describe('Global HTTP error contract (real application modules, mocked persisten
         'Stock changed concurrently',
       );
     });
-    tx.catalogItem.updateMany.mockResolvedValue({ count: 0 });
+    tx.product.updateMany.mockResolvedValue({ count: 0 });
     prisma.$transaction.mockImplementation(async (callback) => callback(tx));
   });
 
@@ -215,17 +240,10 @@ describe('Global HTTP error contract (real application modules, mocked persisten
     return response.body;
   }
 
-  it('normalizes business-not-found from both catalog and analyze', async () => {
-    prisma.catalogItem.create.mockRejectedValue(
-      new Prisma.PrismaClientKnownRequestError('private foreign key SQL', {
-        code: 'P2003',
-        clientVersion: '7',
-      }),
-    );
+  it('normalizes business-not-found from both Products and analyze', async () => {
+    tx.business.findUnique.mockResolvedValue(null);
     const body = await expectError(
-      request(app.getHttpServer())
-        .post('/catalog-items')
-        .send({ businessId: id, name: 'Shirt' }),
+      request(app.getHttpServer()).post(productsPath).send({ name: 'Shirt' }),
       404,
       ErrorCode.BUSINESS_NOT_FOUND,
       'Business not found',
@@ -456,15 +474,14 @@ describe('Global HTTP error contract (real application modules, mocked persisten
   it('preserves class-validator message arrays and handles UUID pipe errors', async () => {
     const body = await expectError(
       request(app.getHttpServer())
-        .post('/catalog-items')
-        .send({ businessId: 'invalid', name: 'x'.repeat(201) }),
+        .post(productsPath)
+        .send({ name: 'x'.repeat(201) }),
       400,
       ErrorCode.VALIDATION_ERROR,
     );
     expect(body.error).toBe('Bad Request');
     expect(body.message).toEqual(
       expect.arrayContaining([
-        'businessId must be a UUID',
         'name must be shorter than or equal to 200 characters',
       ]),
     );
@@ -473,7 +490,7 @@ describe('Global HTTP error contract (real application modules, mocked persisten
       400,
       ErrorCode.VALIDATION_ERROR,
     );
-    expect(prisma.catalogItem.create).not.toHaveBeenCalled();
+    expect(prisma.product.create).not.toHaveBeenCalled();
   });
 
   it('unknown mapping types rejected by DTO keep the framework validation contract', async () => {
@@ -492,7 +509,7 @@ describe('Global HTTP error contract (real application modules, mocked persisten
   it('preserves malformed JSON HTTP 400 with useful framework parsing details', async () => {
     const body = await expectError(
       request(app.getHttpServer())
-        .post('/catalog-items')
+        .post(productsPath)
         .set('Content-Type', 'application/json')
         .send('{"password":"private-token"'),
       400,
@@ -500,19 +517,19 @@ describe('Global HTTP error contract (real application modules, mocked persisten
     );
     expect(typeof body.message).toBe('string');
     expect(body.message).toContain('JSON');
-    expect(prisma.catalogItem.create).not.toHaveBeenCalled();
+    expect(prisma.product.create).not.toHaveBeenCalled();
   });
 
   it('keeps oversized JSON separate from the Excel-specific size code', async () => {
     await expectError(
       request(app.getHttpServer())
-        .post('/catalog-items')
+        .post(productsPath)
         .send({ name: 'x'.repeat(200000) }),
       413,
       ErrorCode.PAYLOAD_TOO_LARGE,
       'The request body exceeds the maximum allowed size',
     );
-    expect(prisma.catalogItem.create).not.toHaveBeenCalled();
+    expect(prisma.product.create).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -589,10 +606,11 @@ describe('Global HTTP error contract (real application modules, mocked persisten
   });
 
   it('leaves successful responses and Excel row-level validation codes unchanged', async () => {
-    await request(app.getHttpServer())
-      .post('/catalog-items')
-      .send({ businessId: id, name: 'Shirt' })
-      .expect(201, { id, name: 'Shirt' });
+    const created = await request(app.getHttpServer())
+      .post(productsPath)
+      .send({ name: 'Shirt' })
+      .expect(201);
+    expect(created.body).toMatchObject({ id, businessId: id, name: 'Shirt' });
     const book = new Workbook();
     book.addWorksheet('Products').addRows([
       ['Name', 'Price', 'SKU', 'Fabric'],

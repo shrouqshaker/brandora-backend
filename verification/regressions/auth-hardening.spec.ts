@@ -4,7 +4,6 @@ import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
 import { randomBytes } from 'node:crypto';
 import { Workbook } from 'exceljs';
-import nodemailer from 'nodemailer';
 import argon2 from 'argon2';
 import { AuthService } from '../../src/auth/auth.service';
 import { AuthSessionsService } from '../../src/auth/auth-sessions.service';
@@ -19,7 +18,7 @@ import {
   tokenHash,
   tokenLocator,
 } from '../../src/auth/auth-tokens';
-import { SmtpPasswordResetMailer } from '../../src/auth/password-reset.mailer';
+import { BrevoPasswordResetMailer } from '../../src/auth/password-reset.mailer';
 
 class SharedFakeStore extends AuthRateStore {
   readonly counters = new Map<string, number>();
@@ -146,6 +145,41 @@ describe('Shared authentication limits and proxy boundaries', () => {
       expect(rule.key).toMatch(/^[a-f0-9]{64}$/);
     expect(JSON.stringify(store.seen)).not.toContain('owner@example.com');
   });
+  it('limits OTP guesses across IPs and instances by normalized email, not the guessed code', async () => {
+    const guards = [makeGuard(), makeGuard()];
+    for (let i = 0; i < 5; i++) {
+      await guards[i % 2].canActivate(
+        context(undefined, `192.0.2.${i + 1}`, 'resetPassword', {
+          email: i % 2 ? ' Owner@Example.com ' : 'owner@example.com',
+          otp: String(i).padStart(8, '0'),
+        }),
+      );
+    }
+    await expect(
+      guards[1].canActivate(
+        context(undefined, '192.0.2.99', 'resetPassword', {
+          email: 'owner@example.com',
+          otp: '99999999',
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'AUTH_RATE_LIMITED' });
+    expect(new Set(store.seen.map((rules) => rules[1].key)).size).toBe(1);
+    expect(store.seen[0][1]).toMatchObject({ limit: 5, seconds: 900 });
+    // Resending uses an independent quota and cannot replenish guess attempts.
+    await guards[0].canActivate(
+      context(undefined, '192.0.2.99', 'forgotPassword', {
+        email: 'owner@example.com',
+      }),
+    );
+    await expect(
+      guards[0].canActivate(
+        context(undefined, '192.0.2.100', 'resetPassword', {
+          email: 'owner@example.com',
+          otp: '00000000',
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'AUTH_RATE_LIMITED' });
+  });
   it('rejects invalid configured proxy CIDRs at startup', () => {
     expect(() => makeGuard('not-a-network')).toThrow();
   });
@@ -164,7 +198,7 @@ describe('Shared authentication limits and proxy boundaries', () => {
   });
 });
 
-describe('Opaque tokens, reset validation and SMTP readiness', () => {
+describe('Opaque tokens, reset validation and Brevo readiness', () => {
   it('bounds expensive registration hashing to two workers and releases capacity', async () => {
     const releases: ((value: string) => void)[] = [];
     const hash = jest
@@ -243,7 +277,8 @@ describe('Opaque tokens, reset validation and SMTP readiness', () => {
       expect(
         validateSync(
           plainToInstance(ResetPasswordDto, {
-            token: opaqueToken().value,
+            email: 'owner@example.invalid',
+            otp: '12345678',
             newPassword,
           }),
         ).length,
@@ -252,7 +287,8 @@ describe('Opaque tokens, reset validation and SMTP readiness', () => {
   );
   it('accepts bounded strong reset passwords and rejects privileged extra properties', () => {
     const data = {
-      token: opaqueToken().value,
+      email: 'owner@example.invalid',
+      otp: '12345678',
       newPassword: 'NewSecurePassword123!',
     };
     expect(validateSync(plainToInstance(ResetPasswordDto, data))).toEqual([]);
@@ -263,103 +299,86 @@ describe('Opaque tokens, reset validation and SMTP readiness', () => {
       ).length,
     ).toBeGreaterThan(0);
   });
-  it('does not pretend an unconfigured SMTP provider is ready', () => {
+  it('does not pretend an unconfigured email provider is ready', () => {
     expect(() =>
-      new SmtpPasswordResetMailer(
+      new BrevoPasswordResetMailer(
         new ConfigService({ AUTH_EMAIL_MODE: 'disabled' }),
       ).assertReady(),
     ).toThrow('not configured');
   });
-  it('requires a secure Android reset URL and rejects missing SMTP configuration', () => {
+  it('rejects a missing Brevo API key', () => {
     expect(() =>
-      new SmtpPasswordResetMailer(
+      new BrevoPasswordResetMailer(
         new ConfigService({
-          AUTH_EMAIL_MODE: 'smtp',
-          AUTH_RESET_URL: 'http://unsafe.example/reset',
-          SMTP_HOST: 'smtp.example',
-          SMTP_USER: 'u',
-          SMTP_PASSWORD: 'p',
-          SMTP_FROM: 'no-reply@example.com',
+          AUTH_EMAIL_MODE: 'brevo',
+          BREVO_API_KEY: '',
+          BREVO_SENDER_EMAIL: 'no-reply@example.com',
         }),
       ).assertReady(),
     ).toThrow('not configured');
   });
-  it('validates SMTP port configuration before looking up any account', () => {
+  it('validates Brevo API key configuration before looking up any account', () => {
     const config = new ConfigService({
-      AUTH_EMAIL_MODE: 'smtp',
+      AUTH_EMAIL_MODE: 'brevo',
       AUTH_RESET_URL: 'https://example.com/reset',
-      SMTP_HOST: 'smtp.example',
-      SMTP_USER: 'test',
-      SMTP_PASSWORD: 'test',
-      SMTP_FROM: 'no-reply@example.com',
-      SMTP_PORT: 'bad',
+      BREVO_API_KEY: '',
+      BREVO_SENDER_EMAIL: 'no-reply@example.com',
     });
-    expect(() => new SmtpPasswordResetMailer(config).assertReady()).toThrow(
+    expect(() => new BrevoPasswordResetMailer(config).assertReady()).toThrow(
       'not configured',
     );
   });
-  it('uses TLS and an Android token fragment through a controlled SMTP transport', async () => {
-    const transport = {
-      sendMail: jest.fn().mockResolvedValue({}),
-      close: jest.fn(),
-    };
+  it('uses the Brevo HTTPS API with an OTP and no reset link', async () => {
     const spy = jest
-      .spyOn(nodemailer, 'createTransport')
-      .mockReturnValue(
-        transport as unknown as ReturnType<typeof nodemailer.createTransport>,
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ messageId: '<test-email-id@example.invalid>' }),
+        ),
       );
     try {
-      const token = opaqueToken().value;
-      await new SmtpPasswordResetMailer(
+      const token = '12345678';
+      await new BrevoPasswordResetMailer(
         new ConfigService({
-          AUTH_EMAIL_MODE: 'smtp',
+          AUTH_EMAIL_MODE: 'brevo',
           AUTH_RESET_URL: 'https://example.com/reset',
-          SMTP_HOST: 'smtp.example',
-          SMTP_USER: 'test',
-          SMTP_PASSWORD: 'test',
-          SMTP_FROM: 'no-reply@example.com',
-          SMTP_PORT: '587',
-          SMTP_SECURE: 'false',
+          BREVO_API_KEY: 'test-key',
+          BREVO_SENDER_EMAIL: 'no-reply@example.com',
         }),
       ).send('owner@example.com', token);
       expect(spy).toHaveBeenCalledWith(
+        'https://api.brevo.com/v3/smtp/email',
         expect.objectContaining({
-          requireTLS: true,
-          tls: { rejectUnauthorized: true },
+          method: 'POST',
+          signal: expect.any(AbortSignal),
         }),
       );
-      const message = transport.sendMail.mock.calls[0][0] as { text: string };
-      expect(message.text).toContain(`#token=${token}`);
-      expect(message.text).not.toContain('?token=');
-      expect(transport.close).toHaveBeenCalledTimes(1);
+      const request = spy.mock.calls[0][1]!;
+      const message = JSON.parse(request.body as string) as {
+        textContent: string;
+      };
+      expect(message.textContent).toContain(`reset code is: ${token}`);
+      expect(message.textContent).not.toContain('?token=');
     } finally {
       spy.mockRestore();
     }
   });
-  it('closes a failed SMTP transport without a network fallback', async () => {
-    const transport = {
-      sendMail: jest.fn().mockRejectedValue(new Error('controlled failure')),
-      close: jest.fn(),
-    };
+  it('does not expose Brevo response details when delivery fails', async () => {
     const spy = jest
-      .spyOn(nodemailer, 'createTransport')
-      .mockReturnValue(
-        transport as unknown as ReturnType<typeof nodemailer.createTransport>,
-      );
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue({ ok: false, status: 401 } as Response);
     try {
       await expect(
-        new SmtpPasswordResetMailer(
+        new BrevoPasswordResetMailer(
           new ConfigService({
-            AUTH_EMAIL_MODE: 'smtp',
+            AUTH_EMAIL_MODE: 'brevo',
             AUTH_RESET_URL: 'https://example.com/reset',
-            SMTP_HOST: 'smtp.example',
-            SMTP_USER: 'test',
-            SMTP_PASSWORD: 'test',
-            SMTP_FROM: 'no-reply@example.com',
+            BREVO_API_KEY: 'test-key',
+            BREVO_SENDER_EMAIL: 'no-reply@example.com',
           }),
-        ).send('owner@example.com', opaqueToken().value),
-      ).rejects.toThrow('controlled failure');
-      expect(transport.close).toHaveBeenCalledTimes(1);
+        ).send('owner@example.com', '12345678'),
+      ).rejects.toThrow('Brevo email delivery failed');
+      expect(spy).toHaveBeenCalledTimes(1);
     } finally {
       spy.mockRestore();
     }

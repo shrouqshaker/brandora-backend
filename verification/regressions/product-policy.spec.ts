@@ -149,7 +149,7 @@ describe('New DTO boundaries', () => {
     { name: ' ' },
     { name: 'x'.repeat(201) },
     { name: 'ok', stockQuantity: 4 },
-    { name: 'ok', externalKey: 'key' },
+    { name: 'ok', externalKey: 123 },
     { name: 'ok', basePrice: 2 },
     { name: 'ok', basePrice: '-1' },
     { name: 'ok', basePrice: '10000000000' },
@@ -172,6 +172,38 @@ describe('New DTO boundaries', () => {
     ).toEqual([]);
     expect(errors(CategoryDto, { name: ' Trim ' })).toEqual([]);
   });
+  it.each([
+    ['  Manual-001  ', 'Manual-001'],
+    ['CaseSensitive', 'CaseSensitive'],
+    ['', null],
+    ['   ', null],
+    [null, null],
+    ['x'.repeat(200), 'x'.repeat(200)],
+  ])(
+    'normalizes the import identity %j to %j on create and patch',
+    (input, expected) => {
+      const create = plainToInstance(CreateProductDto, {
+        name: 'Manual',
+        externalKey: input,
+      });
+      const patch = plainToInstance(UpdateProductDto, { externalKey: input });
+      expect(validateSync(create)).toEqual([]);
+      expect(validateSync(patch)).toEqual([]);
+      expect(create.externalKey).toBe(expected);
+      expect(patch.externalKey).toBe(expected);
+    },
+  );
+  it.each([42, true, [], {}, 'x'.repeat(201)])(
+    'rejects an invalid externalKey %j on both writes',
+    (externalKey) => {
+      expect(
+        errors(CreateProductDto, { name: 'Manual', externalKey }).length,
+      ).toBeGreaterThan(0);
+      expect(errors(UpdateProductDto, { externalKey }).length).toBeGreaterThan(
+        0,
+      );
+    },
+  );
   it.each([
     { sku: ' ' },
     { sku: 'x'.repeat(201) },
@@ -206,7 +238,7 @@ describe('Atomic simple-product creation', () => {
     const variantFailure = new Error('variant write failed');
     const tx = {
       business: { findUnique: jest.fn().mockResolvedValue({ id: 'business' }) },
-      catalogItem: { create: jest.fn().mockResolvedValue({ id: 'product' }) },
+      product: { create: jest.fn().mockResolvedValue({ id: 'product' }) },
       productVariant: { create: jest.fn().mockRejectedValue(variantFailure) },
     };
     const prisma = {
@@ -224,13 +256,13 @@ describe('Atomic simple-product creation', () => {
     );
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(tx.productVariant.create).toHaveBeenCalledWith({
-      data: { businessId: 'business', catalogItemId: 'product' },
+      data: { businessId: 'business', productId: 'product' },
     });
   });
   it('returns a business-not-found error before creating any product', async () => {
     const tx = {
       business: { findUnique: jest.fn().mockResolvedValue(null) },
-      catalogItem: { create: jest.fn() },
+      product: { create: jest.fn() },
     };
     const prisma = {
       $transaction: jest.fn(
@@ -244,6 +276,6 @@ describe('Atomic simple-product creation', () => {
     await expect(
       service.create('missing', { name: 'Simple' }),
     ).rejects.toMatchObject({ code: ErrorCode.BUSINESS_NOT_FOUND });
-    expect(tx.catalogItem.create).not.toHaveBeenCalled();
+    expect(tx.product.create).not.toHaveBeenCalled();
   });
 });

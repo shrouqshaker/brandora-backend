@@ -22,7 +22,7 @@ describe('Variant import planning and scoped database conflict checks', () => {
       {
         id: 'v',
         businessId: 'b',
-        catalogItemId: 'p',
+        productId: 'p',
         optionValues: {},
         sku: 'TEA',
         unitPrice: null,
@@ -38,7 +38,7 @@ describe('Variant import planning and scoped database conflict checks', () => {
   };
   it('matches a product code and its default variant', () => {
     expect(planner.plan('b', [row], [product]).unchanged[0]).toMatchObject({
-      catalogItemId: 'p',
+      productId: 'p',
       variantId: 'v',
     });
   });
@@ -124,13 +124,11 @@ describe('Variant import planning and scoped database conflict checks', () => {
   });
   it('validates an existing scoped SKU reservation', async () => {
     const db: any = {
-      catalogItem: { findMany: jest.fn().mockResolvedValue([product]) },
+      product: { findMany: jest.fn().mockResolvedValue([product]) },
       productVariant: {
         findMany: jest
           .fn()
-          .mockResolvedValue([
-            { ...product.variants[0], catalogItemId: 'other' },
-          ]),
+          .mockResolvedValue([{ ...product.variants[0], productId: 'other' }]),
       },
     };
     const r = await checkImportDatabase(
@@ -149,7 +147,7 @@ describe('Variant import planning and scoped database conflict checks', () => {
   });
   it('rejects imports into inactive products', async () => {
     const db: any = {
-      catalogItem: {
+      product: {
         findMany: jest
           .fn()
           .mockResolvedValue([{ ...product, isActive: false }]),
@@ -208,7 +206,7 @@ describe('Variant import planning and scoped database conflict checks', () => {
     };
     const previous = { ...product, attributes: { first: 'a'.repeat(8500) } };
     const db: any = {
-      catalogItem: { findMany: jest.fn().mockResolvedValue([previous]) },
+      product: { findMany: jest.fn().mockResolvedValue([previous]) },
       productVariant: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const result = await checkImportDatabase(

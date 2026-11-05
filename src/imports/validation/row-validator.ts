@@ -3,6 +3,7 @@ import { ExcelDataRow } from '../adapters/excel.adapter';
 import { SavedColumnMapping } from '../mapping.service';
 import { RowNormalizer } from './row-normalizer';
 import { RowError, RowValidationResult } from './row.types';
+import { validExternalKeyLength } from '../../common/validation/external-key.validation';
 import {
   productOptions,
   variantOptions,
@@ -46,7 +47,12 @@ export class RowValidator {
             message: `${field} is required; product code is the stable product identity`,
           });
       for (const field of ['name', 'externalKey', 'sku', 'category'] as const)
-        if ((normalized.data[field]?.length ?? 0) > 200)
+        if (
+          field === 'externalKey'
+            ? normalized.data.externalKey != null &&
+              !validExternalKeyLength(normalized.data.externalKey)
+            : (normalized.data[field]?.length ?? 0) > 200
+        )
           normalized.errors.push({
             field,
             code: 'TEXT_TOO_LONG',

@@ -33,7 +33,7 @@ describe('Variant import execution lifecycle (group SQL exercised in PostgreSQL 
           return { count: 1 };
         }),
       },
-      catalogItem: { findMany: jest.fn().mockResolvedValue([]) },
+      product: { findMany: jest.fn().mockResolvedValue([]) },
       productVariant: { findMany: jest.fn().mockResolvedValue([]) },
     };
     storage = { read: jest.fn().mockResolvedValue(Buffer.from('workbook')) };
@@ -57,7 +57,7 @@ describe('Variant import execution lifecycle (group SQL exercised in PostgreSQL 
         row: {
           rowNumber: 2,
           externalKey: 'A',
-          catalogItemId: 'product',
+          productId: 'product',
           variantId: 'variant',
         },
       },
@@ -130,7 +130,7 @@ describe('Variant import execution lifecycle (group SQL exercised in PostgreSQL 
           row: {
             rowNumber: 3,
             externalKey: 'B',
-            catalogItemId: 'p',
+            productId: 'p',
             variantId: 'v',
           },
         },

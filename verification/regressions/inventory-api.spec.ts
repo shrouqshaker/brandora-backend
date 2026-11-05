@@ -52,7 +52,7 @@ describe('Variant inventory HTTP contract (real DTO/controller, mocked service)'
         .send({ quantity })
         .expect(201);
       expect(service.setQuantity).toHaveBeenCalledWith(
-        { id: variantId, catalogItemId: productId, businessId },
+        { id: variantId, productId: productId, businessId },
         quantity,
         'MANUAL_ADJUSTMENT',
         undefined,
@@ -103,7 +103,7 @@ describe('Variant inventory HTTP contract (real DTO/controller, mocked service)'
       .get(base + '/movements?limit=2&offset=1')
       .expect(200);
     expect(service.listVariantMovements).toHaveBeenCalledWith(
-      { id: variantId, catalogItemId: productId, businessId },
+      { id: variantId, productId: productId, businessId },
       expect.objectContaining({ limit: 2, offset: 1 }),
     );
   });

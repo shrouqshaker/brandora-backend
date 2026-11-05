@@ -11,7 +11,7 @@ test.each(routes)(
     verifyRoutePolicy(route);
   },
 );
-test('compiled inventory contains 49 routes, 42 protected and seven public including App Links', () => {
+test('compiled inventory contains 49 routes, 42 protected and seven public', () => {
   expect(verifyControllerInventory(routes)).toEqual({
     routes: 49,
     protected: 42,

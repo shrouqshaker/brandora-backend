@@ -2,6 +2,100 @@ import { RowValidator } from '../../src/imports/validation/row-validator';
 import { RowNormalizer } from '../../src/imports/validation/row-normalizer';
 import { MappingType } from '../../src/imports/mapping-fields';
 import { ExcelValue } from '../../src/imports/adapters/excel.adapter';
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
+import {
+  CreateProductDto,
+  UpdateProductDto,
+} from '../../src/products/dto/product.dto';
+
+describe('Products and Excel share the externalKey Unicode length boundary', () => {
+  const validator = new RowValidator(new RowNormalizer());
+  const mapping = ['externalKey', 'name'].map((target, index) => ({
+    sourceColumn: target,
+    sourceColumnIndex: index + 1,
+    type: MappingType.STANDARD,
+    target,
+  }));
+  const cases = [
+    ['ASCII', 'A'],
+    ['Arabic', '\u0634'],
+    ['non-BMP', '\u{1F9F5}'],
+    ['mixed Arabic/non-BMP', '\u0634\u{1F9F5}'],
+    ['combining mark', 'a\u0301'],
+    ['variation selector', '\u2764\uFE0F'],
+  ].flatMap(([label, text]) =>
+    [199, 200, 201].map((length) => ({
+      label,
+      length,
+      key: Array.from(text.repeat(length)).slice(0, length).join(''),
+    })),
+  );
+
+  it.each(cases)(
+    '$label with $length code points agrees on create, update and import',
+    ({ key, length }) => {
+      const accepted = length <= 200;
+      for (const dto of [
+        plainToInstance(CreateProductDto, {
+          name: 'Manual',
+          externalKey: `  ${key}  `,
+        }),
+        plainToInstance(UpdateProductDto, { externalKey: `  ${key}  ` }),
+      ]) {
+        const errors = validateSync(dto);
+        expect(errors.length === 0).toBe(accepted);
+        expect(dto.externalKey).toBe(key);
+        if (!accepted)
+          expect(errors).toEqual([
+            expect.objectContaining({
+              property: 'externalKey',
+              constraints: {
+                maxLength:
+                  'externalKey must be shorter than or equal to 200 characters',
+              },
+            }),
+          ]);
+      }
+      const result = validator.validate(
+        [{ rowNumber: 2, values: [`  ${key}  `, 'Manual'], isEmpty: false }],
+        mapping,
+      );
+      expect(result.summary.validRows).toBe(accepted ? 1 : 0);
+      if (accepted) expect(result.validRows[0].data.externalKey).toBe(key);
+      else
+        expect(result.invalidRows[0].errors).toEqual([
+          {
+            field: 'externalKey',
+            code: 'TEXT_TOO_LONG',
+            message: 'externalKey must be at most 200 characters',
+          },
+        ]);
+    },
+  );
+
+  it('preserves case and distinct composed/decomposed matching identities', () => {
+    const keys = ['Manual', 'manual', '\u00E9', 'e\u0301'];
+    const result = validator.validate(
+      keys.map((key, index) => ({
+        rowNumber: index + 2,
+        values: [key, 'Manual'],
+        isEmpty: false,
+      })),
+      mapping,
+    );
+    expect(result.summary.validRows).toBe(keys.length);
+    expect(result.validRows.map((row) => row.data.externalKey)).toEqual(keys);
+    for (const key of keys) {
+      const dto = plainToInstance(CreateProductDto, {
+        name: 'Manual',
+        externalKey: key,
+      });
+      expect(validateSync(dto)).toEqual([]);
+      expect(dto.externalKey).toBe(key);
+    }
+  });
+});
 
 describe('Product/variant workbook normalization and grouping', () => {
   const validator = new RowValidator(new RowNormalizer());

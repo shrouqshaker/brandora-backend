@@ -390,7 +390,7 @@ async function main() {
   );
   const unknownMs = Date.now() - unknownStart;
   assert.deepEqual(known, unknown);
-  assert.ok(knownMs >= 2900 && unknownMs >= 2900);
+  assert.ok(knownMs >= 8400 && unknownMs >= 8400);
   assert.ok(
     Math.abs(knownMs - unknownMs) < 1500,
     'controlled mail delivery should not create a large account timing difference',
@@ -401,13 +401,22 @@ async function main() {
   const resetRecord = await db.passwordResetToken.findUniqueOrThrow({
     where: { userId: owner.user.id },
   });
-  assert.equal(resetRecord.tokenHash, digest(reset));
+  assert.equal(
+    resetRecord.tokenHash,
+    require('../dist/auth/password-reset-otp').resetOtpHash(
+      'owner@example.com',
+      reset,
+      process.env.AUTH_RATE_LIMIT_SECRET || process.env.JWT_SECRET,
+    ),
+  );
   assert.equal(resetRecord.deliveryStatus, 'SENT');
   assert.ok(!JSON.stringify(resetRecord).includes(reset));
   const newPassword = 'NewSecurePassword123!';
   const resetRace = await Promise.all(
     http.map((client) =>
-      client.post('/auth/reset-password').send({ token: reset, newPassword }),
+      client
+        .post('/auth/reset-password')
+        .send({ email: 'owner@example.com', otp: reset, newPassword }),
     ),
   );
   assert.deepEqual(resetRace.map((r) => r.status).sort(), [204, 400]);
@@ -415,7 +424,7 @@ async function main() {
   await call(
     'post',
     '/auth/reset-password',
-    { token: reset, newPassword },
+    { email: 'owner@example.com', otp: reset, newPassword },
     400,
   );
   const updatedUser = await db.user.findUniqueOrThrow({
@@ -455,7 +464,8 @@ async function main() {
     'post',
     '/auth/reset-password',
     {
-      token: `${randomUUID()}.${randomBytes(32).toString('base64url')}`,
+      email: 'owner@example.com',
+      otp: '00000000',
       newPassword,
     },
     400,
@@ -463,13 +473,17 @@ async function main() {
   await call(
     'post',
     '/auth/reset-password',
-    { token: reset, newPassword: 'weak' },
+    { email: 'owner@example.com', otp: reset, newPassword: 'weak' },
     400,
   );
   await call(
     'post',
     '/auth/reset-password',
-    { token: reset, newPassword: 'Aa1' + 'x'.repeat(126) },
+    {
+      email: 'owner@example.com',
+      otp: reset,
+      newPassword: 'Aa1' + 'x'.repeat(126),
+    },
     400,
   );
   await call('post', '/auth/refresh', { refreshToken: 'not-a-token' }, 400);
@@ -490,7 +504,7 @@ async function main() {
   await call(
     'post',
     '/auth/reset-password',
-    { token: expiredReset, newPassword },
+    { email: 'owner@example.com', otp: expiredReset, newPassword },
     400,
   );
   mailer.ready = false;
@@ -527,7 +541,11 @@ async function main() {
   await call(
     'post',
     '/auth/reset-password',
-    { token: mailer.sent.at(-1).token, newPassword },
+    {
+      email: 'stranger@example.com',
+      otp: mailer.sent.at(-1).token,
+      newPassword,
+    },
     400,
   );
   mailer.fail = false;
@@ -700,7 +718,8 @@ async function main() {
     [
       '/auth/reset-password',
       {
-        token: `${randomUUID()}.${randomBytes(32).toString('base64url')}`,
+        email: 'owner@example.com',
+        otp: '00000000',
         newPassword: 'weak',
       },
       400,

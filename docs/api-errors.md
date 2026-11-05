@@ -41,7 +41,6 @@ Excel upload limit. Multiple messages share a code when their semantics match.
 | The import job does not have a retained analyzed workbook                                                        | `IMPORT_WORKBOOK_UNAVAILABLE`        |
 | The retained workbook is unavailable                                                                             | `IMPORT_WORKBOOK_UNAVAILABLE`        |
 | Unable to read the retained workbook                                                                             | `IMPORT_WORKBOOK_READ_FAILED`        |
-| Existing catalog attributes must be a JSON object before merging mapped attributes                               | `CATALOG_ATTRIBUTES_INVALID`         |
 | The import job must be READY before preview                                                                      | `IMPORT_NOT_READY`                   |
 | The import job has no retained mapped workbook                                                                   | `IMPORT_WORKBOOK_UNAVAILABLE`        |
 | Unable to rebuild the import preview from the retained workbook                                                  | `IMPORT_WORKBOOK_READ_FAILED`        |
@@ -52,7 +51,6 @@ Excel upload limit. Multiple messages share a code when their semantics match.
 | Target quantity must be an integer between 0 and 2147483647                                                      | `INVENTORY_QUANTITY_INVALID`         |
 | Unknown inventory movement type                                                                                  | `INVENTORY_MOVEMENT_TYPE_INVALID`    |
 | Reference type must be 1 to 50 characters and reference ID, when supplied, 1 to 200 characters                   | `INVENTORY_REFERENCE_INVALID`        |
-| Catalog item not found in this business                                                                          | `CATALOG_ITEM_NOT_FOUND`             |
 | Stock changed concurrently; retry the operation                                                                  | `INVENTORY_CONFLICT`                 |
 
 Variant inventory adds `409 INVENTORY_INACTIVE` for stock writes/sales on inactive
@@ -70,18 +68,28 @@ The English message is `Stored validation results are not available for this imp
 Snapshot corruption/read failures return a safe `500 INTERNAL_SERVER_ERROR`.
 History, Preview, and validation-results pagination errors use `VALIDATION_ERROR`.
 
-Catalog CRUD additions:
+The legacy Catalog CRUD API and its `CATALOG_*` error codes are removed.
+The [Products API](products-api.md) is the canonical metadata API. Scoped missing
+products return `404 PRODUCT_NOT_FOUND`; malformed metadata and empty patches
+return `400 VALIDATION_ERROR`. Import attribute merge failures remain row-level
+`MERGED_ATTRIBUTES_INVALID` validation errors in the existing Excel workflow.
+Products POST/PATCH return `409 PRODUCT_EXTERNAL_KEY_CONFLICT` when a trimmed
+externalKey is already reserved by another product in the same business.
 
-| Message                                                               | Code                            |
-| --------------------------------------------------------------------- | ------------------------------- |
-| Catalog item not found                                                | `CATALOG_ITEM_NOT_FOUND`        |
-| A catalog item with this external key already exists in this business | `CATALOG_EXTERNAL_KEY_CONFLICT` |
-| Catalog attributes must be a JSON object or null                      | `CATALOG_ATTRIBUTES_INVALID`    |
-| At least one editable catalog field must be supplied                  | `VALIDATION_ERROR`              |
+Product image management uses these stable codes (see [Product images](product-images.md)):
 
-Catalog attributes shape failures return 400; the existing import merge guard
-still returns 409 with CATALOG_ATTRIBUTES_INVALID for legacy non-object data.
-See [Catalog CRUD examples](catalog-api.md) for endpoint contracts.
+| HTTP | Code | Meaning / Android action |
+| --- | --- | --- |
+| 400 | `PRODUCT_IMAGE_INVALID` | Invalid file/type, forbidden attributes, more than five occupied image slots, oversized batch or invalid order; correct input or refresh gallery. |
+| 413 | `PRODUCT_IMAGE_TOO_LARGE` | Image exceeds 5 MiB; reduce size. This is separate from Excel's 10 MiB limit. |
+| 404 | `PRODUCT_IMAGE_NOT_FOUND` | Image does not belong to the scoped Product/Business or no longer exists. |
+| 503 / 502 | `PRODUCT_IMAGE_UNAVAILABLE` | Missing provider configuration (503), or rejected/failed/timed-out provider request or invalid acceptance metadata (502). |
+
+Existing `404 NOT_FOUND` / `PRODUCT_NOT_FOUND` may occur at earlier ownership
+checks. PRODUCT_OPTIONS_IN_USE still protects Variant option compatibility, not images.
+PRODUCT_WRITE_CONFLICT can reject deletion of an upload in progress or a transaction
+race. A successful delete can return `cleanupPending=true`; this is
+not a separate HTTP failure and means retained metadata needs explicit cleanup retry.
 
 Framework fallbacks (no domain-specific exception):
 

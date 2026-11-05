@@ -1,47 +1,32 @@
 import { Injectable, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import nodemailer from 'nodemailer';
+import { isEmail } from 'class-validator';
 import { AppHttpException } from '../common/errors/app-http.exception';
 import { ErrorCode } from '../common/errors/error-code';
 
 export abstract class PasswordResetMailer {
   abstract assertReady(): void;
-  abstract send(email: string, token: string): Promise<void>;
+  abstract send(email: string, otp: string): Promise<void>;
 }
+
 @Injectable()
-export class SmtpPasswordResetMailer extends PasswordResetMailer {
+export class BrevoPasswordResetMailer extends PasswordResetMailer {
   constructor(private readonly config: ConfigService) {
     super();
   }
+
   assertReady() {
     const c = this.config;
-    const link = c.get<string>('AUTH_RESET_URL');
-    let validLink = false;
-    try {
-      const parsed = new URL(link ?? '');
-      validLink =
-        parsed.protocol === 'https:' &&
-        !parsed.username &&
-        !parsed.password &&
-        !parsed.hash;
-    } catch {
-      /* invalid configuration */
-    }
-    const secure = c.get<string>('SMTP_SECURE') ?? 'false';
-    const port = Number(c.get('SMTP_PORT') ?? (secure === 'true' ? 465 : 587));
-    const from = c.get<string>('SMTP_FROM');
+    const from = c.get<string>('BREVO_SENDER_EMAIL');
+    const apiKey = c.get<string>('BREVO_API_KEY') ?? '';
+    const mode = c.get<string>('AUTH_EMAIL_MODE');
     if (
-      c.get('AUTH_EMAIL_MODE') !== 'smtp' ||
-      !validLink ||
-      !c.get('SMTP_HOST') ||
-      !c.get('SMTP_USER') ||
-      !c.get('SMTP_PASSWORD') ||
+      mode !== 'brevo' ||
+      !/^[\x21-\x7e]+$/.test(apiKey.trim()) ||
+      /[\r\n]/.test(apiKey) ||
       !from ||
-      /[\r\n]/.test(from) ||
-      !['true', 'false'].includes(secure) ||
-      !Number.isInteger(port) ||
-      port < 1 ||
-      port > 65535
+      !isEmail(from.trim()) ||
+      /[\r\n]/.test(from)
     )
       throw new AppHttpException(
         ErrorCode.AUTH_EMAIL_UNAVAILABLE,
@@ -49,48 +34,49 @@ export class SmtpPasswordResetMailer extends PasswordResetMailer {
         'Password recovery email is not configured',
       );
   }
-  async send(email: string, token: string) {
+
+  async send(email: string, otp: string) {
     this.assertReady();
-    const secure = this.config.get('SMTP_SECURE') === 'true';
-    const port = Number(this.config.get('SMTP_PORT') ?? (secure ? 465 : 587));
-    if (!Number.isInteger(port) || port < 1 || port > 65535)
-      throw new Error('Invalid SMTP configuration');
-    const transport = nodemailer.createTransport({
-      host: this.config.get<string>('SMTP_HOST'),
-      port,
-      secure,
-      requireTLS: !secure,
-      auth: {
-        user: this.config.get<string>('SMTP_USER'),
-        pass: this.config.get<string>('SMTP_PASSWORD'),
-      },
-      tls: { rejectUnauthorized: true },
-      connectionTimeout: 1000,
-      greetingTimeout: 1000,
-      socketTimeout: 1000,
-    });
-    // Fragments reach Android App Links without leaking tokens into HTTP access logs.
-    const link = new URL(this.config.get<string>('AUTH_RESET_URL')!);
-    link.hash = new URLSearchParams({ token }).toString();
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (typeof otp !== 'string' || otp.length !== 8 || !/^[0-9]{8}$/.test(otp))
+      throw new Error('Brevo email delivery failed');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
     try {
-      await Promise.race([
-        transport.sendMail({
-          from: this.config.get<string>('SMTP_FROM'),
-          to: email,
+      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        redirect: 'error',
+        headers: {
+          'api-key': this.config.get<string>('BREVO_API_KEY')!.trim(),
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sender: {
+            email: this.config.get<string>('BREVO_SENDER_EMAIL')!.trim(),
+          },
+          to: [{ email }],
           subject: 'Reset your Brandora password',
-          text: `A password reset was requested for your Brandora account. Open this link within 15 minutes: ${link.toString()}\nIf you did not request this, ignore this message. Your password has not changed.`,
+          textContent: `Your Brandora password reset code is: ${otp}\nEnter this code in the app within 15 minutes. Do not share it with anyone.\nIf you did not request this, ignore this message. Your password has not changed.`,
         }),
-        new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(
-            () => reject(new Error('SMTP delivery timeout')),
-            2500,
-          );
-        }),
-      ]);
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error('Brevo email delivery failed');
+      const result: unknown = await response.json();
+      if (
+        !result ||
+        typeof result !== 'object' ||
+        !('messageId' in result) ||
+        typeof result.messageId !== 'string' ||
+        !result.messageId.trim()
+      )
+        throw new Error('Brevo email delivery failed');
+    } catch {
+      // Provider and network errors may contain request details. Never propagate them.
+      throw new Error('Brevo email delivery failed');
     } finally {
-      if (timer) clearTimeout(timer);
-      transport.close();
+      clearTimeout(timer);
+      // Also release the response body/socket on a provider error.
+      controller.abort();
     }
   }
 }

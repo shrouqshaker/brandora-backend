@@ -124,13 +124,13 @@ export async function prepareImportContext(
   const skus = result.validRows.flatMap((row) =>
     row.data.sku ? [row.data.sku] : [],
   );
-  const products: Prisma.CatalogItemGetPayload<{
+  const products: Prisma.ProductGetPayload<{
     include: { variants: true };
   }>[] = [];
   const reserved: ProductVariant[] = [];
   for (let offset = 0; offset < keys.length; offset += 1000)
     products.push(
-      ...(await db.catalogItem.findMany({
+      ...(await db.product.findMany({
         where: {
           businessId,
           externalKey: { in: keys.slice(offset, offset + 1000) },
@@ -205,7 +205,7 @@ export async function prepareImportContext(
         continue;
       }
       const sku = row.data.sku ? bySku.get(row.data.sku) : undefined;
-      if (sku && (sku.catalogItemId !== product?.id || sku.id !== variant?.id))
+      if (sku && (sku.productId !== product?.id || sku.id !== variant?.id))
         problems.set(key, {
           field: 'sku',
           code: 'SKU_RESERVED',

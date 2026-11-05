@@ -17,7 +17,7 @@ model Business {
   address            String?             @db.VarChar(1000)
   settings           BusinessSettings?
   workingHours       WorkingHour[]
-  catalogItems       CatalogItem[]
+  products           Product[]
   categories         Category[]
   productVariants    ProductVariant[]
   importJobs         ImportJob[]
@@ -132,7 +132,7 @@ model WorkingHour {
   @@index([businessId])
 }
 
-model CatalogItem {
+model Product {
   id                 String              @id @default(uuid()) @db.Uuid
   businessId         String              @db.Uuid
   business           Business            @relation(fields: [businessId], references: [id], onDelete: Restrict)
@@ -143,6 +143,7 @@ model CatalogItem {
   categoryId         String?             @db.Uuid
   categoryRecord     Category?           @relation(fields: [businessId, categoryId], references: [businessId, id], onDelete: Restrict, onUpdate: Restrict)
   options            Json                @default("{}") @db.JsonB
+  colorOptionName    String?             @db.VarChar(60)
   basePrice          Decimal?            @db.Decimal(12, 2)
   attributes         Json?               @db.JsonB
   isActive           Boolean             @default(true)
@@ -150,6 +151,7 @@ model CatalogItem {
   updatedAt          DateTime            @updatedAt
   inventoryMovements InventoryMovement[]
   variants           ProductVariant[]
+  images             ProductImage[]
 
   @@unique([businessId, externalKey])
   // Additive tenant key for the ProductVariant composite foreign key.
@@ -160,15 +162,39 @@ model CatalogItem {
   @@index([businessId, createdAt])
 }
 
+// Upload reservations and deletion tombstones retain public IDs for manual recovery.
+// SQL partial indexes permit one ACTIVE main image and one per color slot.
+model ProductImage {
+  id          String   @id @default(uuid()) @db.Uuid
+  businessId  String   @db.Uuid
+  productId   String   @db.Uuid
+  product     Product  @relation(fields: [businessId, productId], references: [businessId, id], onDelete: Restrict, onUpdate: Restrict)
+  publicId    String   @unique @db.VarChar(250)
+  secureUrl   String?  @db.VarChar(1000)
+  optionName  String?  @db.VarChar(60)
+  optionValue String?  @db.VarChar(100)
+  status      String   @default("UPLOADING") @db.VarChar(20)
+  // Active images occupy compact slots 0..4; slot 0 is the Main Image.
+  position    Int      @default(0)
+  width       Int?
+  height      Int?
+  bytes       Int?
+  format      String?  @db.VarChar(10)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([businessId, productId, status])
+}
+
 model Category {
-  id           String        @id @default(uuid()) @db.Uuid
-  businessId   String        @db.Uuid
-  business     Business      @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  id         String    @id @default(uuid()) @db.Uuid
+  businessId String    @db.Uuid
+  business   Business  @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   // Normalized name uniqueness and nonblank validation live in migration SQL.
-  name         String        @db.VarChar(200)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  catalogItems CatalogItem[]
+  name       String    @db.VarChar(200)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  products   Product[]
 
   @@unique([businessId, id])
   @@index([businessId])
@@ -178,8 +204,8 @@ model ProductVariant {
   id                 String              @id @default(uuid()) @db.Uuid
   businessId         String              @db.Uuid
   business           Business            @relation(fields: [businessId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  catalogItemId      String              @db.Uuid
-  catalogItem        CatalogItem         @relation(fields: [businessId, catalogItemId], references: [businessId, id], onDelete: Restrict, onUpdate: Restrict)
+  productId          String              @db.Uuid
+  product            Product             @relation(fields: [businessId, productId], references: [businessId, id], onDelete: Restrict, onUpdate: Restrict)
   sku                String?             @db.VarChar(200)
   optionValues       Json                @default("{}") @db.JsonB
   unitPrice          Decimal?            @db.Decimal(12, 2)
@@ -191,13 +217,13 @@ model ProductVariant {
   inventoryMovements InventoryMovement[]
 
   // PostgreSQL permits multiple NULL SKUs; inactive rows retain their SKU.
-  @@unique([businessId, catalogItemId, id])
+  @@unique([businessId, productId, id])
   @@unique([businessId, sku])
   // JSONB equality ignores object key order; inactive combinations stay reserved.
-  @@unique([businessId, catalogItemId, optionValues], map: "ProductVariant_parent_optionValues_key")
+  @@unique([businessId, productId, optionValues], map: "ProductVariant_parent_optionValues_key")
   @@index([businessId])
-  @@index([catalogItemId])
-  @@index([businessId, catalogItemId])
+  @@index([productId])
+  @@index([businessId, productId])
 }
 
 enum ImportJobStatus {
@@ -230,10 +256,10 @@ model InventoryMovement {
   id                String                @id @default(uuid()) @db.Uuid
   businessId        String                @db.Uuid
   business          Business              @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  catalogItemId     String                @db.Uuid
-  catalogItem       CatalogItem           @relation(fields: [businessId, catalogItemId], references: [businessId, id], onDelete: Restrict, onUpdate: Restrict)
+  productId         String                @db.Uuid
+  product           Product               @relation(fields: [businessId, productId], references: [businessId, id], onDelete: Restrict, onUpdate: Restrict)
   variantId         String                @db.Uuid
-  variant           ProductVariant        @relation(fields: [businessId, catalogItemId, variantId], references: [businessId, catalogItemId, id], onDelete: Restrict, onUpdate: Restrict)
+  variant           ProductVariant        @relation(fields: [businessId, productId, variantId], references: [businessId, productId, id], onDelete: Restrict, onUpdate: Restrict)
   type              InventoryMovementType
   quantityBefore    Int?
   quantityAfter     Int?
@@ -247,7 +273,7 @@ model InventoryMovement {
 
   @@unique([businessId, variantId, type, referenceType, referenceId], map: "InventoryMovement_operation_key")
   @@index([businessId, createdAt])
-  @@index([catalogItemId, createdAt])
+  @@index([productId, createdAt])
   @@index([businessId, variantId, createdAt])
   @@index([businessId, referenceType, referenceId])
 }

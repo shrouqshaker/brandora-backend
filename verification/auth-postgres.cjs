@@ -84,11 +84,14 @@ async function main() {
       'ImportJob',
     ];
     const snapshot = async () => {
+      const renamed = (
+        await beforeAuth.query(`SELECT to_regclass('public."Product"') AS name`)
+      ).rows[0].name;
       const result = {};
       for (const table of tables) {
         result[table] = (
           await beforeAuth.query(
-            `SELECT ${table === 'CatalogItem' ? "to_jsonb(t) - ARRAY['stockQuantity','trackInventory']" : 'to_jsonb(t)'} AS row FROM "${table}" t ORDER BY to_jsonb(t)::text`,
+            `SELECT ${table === 'CatalogItem' ? "to_jsonb(t) - ARRAY['stockQuantity','trackInventory','colorOptionName']" : 'to_jsonb(t)'} AS row FROM "${table === 'CatalogItem' && renamed ? 'Product' : table}" t ORDER BY to_jsonb(t)::text`,
           )
         ).rows;
       }
@@ -407,15 +410,6 @@ async function main() {
     ['patch', `/businesses/${a.id}/settings`, { acceptsCash: true }],
     ['get', `/businesses/${a.id}/working-hours`],
     ['put', `/businesses/${a.id}/working-hours`, {}],
-    ['get', `/catalog-items?businessId=${a.id}`],
-    ['post', '/catalog-items', { businessId: a.id, name: 'Owned' }],
-    ['get', `/catalog-items/${product.id}?businessId=${a.id}`],
-    [
-      'patch',
-      `/catalog-items/${product.id}`,
-      { businessId: a.id, name: 'Owned' },
-    ],
-    ['delete', `/catalog-items/${product.id}?businessId=${a.id}`],
     ['get', `/businesses/${a.id}/categories`],
     ['post', `/businesses/${a.id}/categories`, { name: 'Other' }],
     ['get', `/businesses/${a.id}/categories/${category.id}`],
@@ -477,7 +471,6 @@ async function main() {
     `/businesses/${a.id}`,
     `/businesses/${a.id}/settings`,
     `/businesses/${a.id}/working-hours`,
-    `/catalog-items?businessId=${a.id}`,
     `/businesses/${a.id}/categories`,
     `/businesses/${a.id}/products`,
     `/businesses/${a.id}/products/${product.id}/variants`,
@@ -606,15 +599,14 @@ async function main() {
   }
   assert.equal(
     Object.hasOwn(
-      await db.catalogItem.findUniqueOrThrow({ where: { id: product.id } }),
+      await db.product.findUniqueOrThrow({ where: { id: product.id } }),
       'stockQuantity',
     ),
     false,
   );
   assert.equal(await db.inventoryMovement.count(), 0);
   assert.equal(
-    (await db.catalogItem.findUniqueOrThrow({ where: { id: legacyItem } }))
-      .name,
+    (await db.product.findUniqueOrThrow({ where: { id: legacyItem } })).name,
     'Historical item',
   );
   // Only invalid credentials are used to exhaust the endpoint's separate limiter.

@@ -51,7 +51,7 @@ first: an invalid UUID can also be hidden as 404 by the guard before DTO validat
 | POST `/auth/logout` | Same refresh-token body; no Bearer required | 204, empty |
 | POST `/auth/logout-all` | `{}`; Bearer required | 204, empty |
 | POST `/auth/forgot-password` | `{ "email": "owner@example.com" }` | Generic message in section 11, 200, or 503 when unavailable |
-| POST `/auth/reset-password` | Token/newPassword in section 11 | 204, empty |
+| POST `/auth/reset-password` | Email/otp/newPassword in section 11 | 204, empty |
 
 Session JSON:
 
@@ -182,8 +182,19 @@ including inactive Products, yields 409 CATEGORY_IN_USE. It never deletes Produc
 
 ## 4. Products
 
-`Product` is the Android/domain name; `CatalogItem` remains the internal model.
-Product IDs appear as `catalogItemId` in Variant, movement and execution JSON.
+Product responses include an ordered images gallery: at most five per Product
+across all Variants. position=0/isMain=true identifies Main. Do not switch photos
+when Color, Size, Weight or Variant selection changes. Use owner JWT with POST
+multipart file, or repeated files for an atomic 1-5-image batch (JPEG/PNG/WebP,
+5 MiB each); no optionName/optionValue. PATCH /images/:imageId with {isMain:true}
+changes Main; PATCH /images with every imageIds entry in desired order reorders
+and makes the first Main. DELETE promotes the first remaining image; refresh GET.
+Empty items uses a placeholder. Cloudinary credentials stay in Backend.
+See [image contracts](product-images.md).
+
+`Product` is the Android/domain, Prisma and migrated physical table name.
+Variant, movement and import JSON expose `productId`; the existing `catalogItemId`
+field remains an equal JSON alias so existing clients continue working.
 
 Let `P = /businesses/:businessId/products`.
 
@@ -213,6 +224,7 @@ Example create request:
 | --- | --- |
 | name | Required on POST; trimmed nonblank string ≤200; optional PATCH, never null |
 | description | Optional string ≤5000; null clears |
+| externalKey | Optional trimmed string ≤200; unique per business, case-sensitive; null/blank clears, omitted PATCH preserves; use as Excel Product Code |
 | categoryId | Optional same-business Category UUID; null clears |
 | basePrice | Optional decimal string; null clears |
 | options | Optional object; default `{}` on POST; replaces definitions on PATCH; never null |
@@ -277,11 +289,14 @@ stock or approve an order. DELETE retains Variants/history and does not change s
 - Legacy simple Products without a Variant are not silently backfilled. Explicit
   PATCH options `{}` or POST optionValues `{}` can establish the missing default.
 
-externalKey, legacy category, stockQuantity and trackInventory are **not writable**
-through Product CRUD. Imports match existing Products by externalKey, not name or
-SKU. A manually created Product normally has externalKey=null, so an import with a
-new code does not attach to it by name. A reserved SKU may instead invalidate that
-import group. There is no import “choose existing product ID” field.
+Assign externalKey through Product POST or PATCH to connect a manual Product to
+Excel Import. It is a trimmed, case-sensitive string of at most 200 characters,
+unique per business including inactive Products; null/blank clears it and omission
+preserves it on PATCH. Duplicate codes return 409 PRODUCT_EXTERNAL_KEY_CONFLICT.
+Legacy category, stockQuantity and trackInventory remain **not writable** through
+Product CRUD. Imports match by externalKey, not name or SKU. Without a matching
+code, an import can create a new Product; a reserved SKU may invalidate that group.
+There is no import “choose existing product ID” field.
 
 ## 5. ProductVariants
 
@@ -339,10 +354,10 @@ does not automatically reactivate its Variants.
 ### Set absolute quantity
 
 ```http
-POST /businesses/:businessId/products/:catalogItemId/variants/:variantId/inventory/adjust
+POST /businesses/:businessId/products/:productId/variants/:variantId/inventory/adjust
 ```
 
-Here catalogItemId is the Product UUID; use separate Product and Variant IDs.
+Here productId is the Product UUID; use separate Product and Variant IDs.
 
 ```json
 { "quantity": 15 }
@@ -374,7 +389,7 @@ not zero. A first null→0 tracking initialization is audited even with zero del
 
 | Method/path | Body | Success |
 | --- | --- | --- |
-| GET `/businesses/:businessId/products/:catalogItemId/variants/:variantId/inventory/movements?limit=20&offset=0` | None | Pagination/items below, 200 |
+| GET `/businesses/:businessId/products/:productId/variants/:variantId/inventory/movements?limit=20&offset=0` | None | Pagination/items below, 200 |
 | GET `/businesses/:businessId/inventory/movements?limit=20&offset=0` | None | Same envelope across the Business, 200 |
 
 ```json
@@ -989,126 +1004,51 @@ unknown fields; request encoding must still whitelist supported fields.
   version 1 returns 409 IMPORT_VALIDATION_RESULTS_UNAVAILABLE; it is not converted.
 - [ ] Apply Bearer/Business selection to every resource call; single-flight refresh;
   clear account-specific caches and selected business when logging out.
-- [ ] Disable token/body/reset-link logging; configure App Links below.
+- [ ] Disable token/body/OTP logging; implement the OTP flow below.
 
-Legacy `/catalog-items` metadata CRUD still exists but is not interchangeable
-with Product CRUD response models: it returns raw metadata, no embedded Variant
-page/effectivePrice/isSellable, and its Decimal serialization may omit trailing
-zeros. New Catalog creates now create a Default Variant. Prefer the Product API
-for the Android product screens described here.
+Use `/businesses/:businessId/products` as the single product CRUD API.
+Legacy `/catalog-items` routes are removed with no aliases or redirects. Product
+responses include the Variant page, effectivePrice and isSellable described above.
+The underlying table is renamed in place to `Product`. Use externalKey to assign the import
+grouping code through Products; the legacy category string is not writable.
+Use categoryId for category selection and the existing Variant
+inventory routes for stock changes.
 
-## 11. Android App Links and password reset
+## 11. Password reset with email OTP
 
-Implemented public association endpoint:
+Forgot Password now uses an eight-digit email code, not an Android reset link.
+Keep the email in screen state. POST `/auth/forgot-password` with that email;
+configured responses are generic 200 for known/unknown accounts and take at
+least 8.5 seconds. HTTP 200 does not confirm inbox receipt.
 
-```http
-GET /.well-known/assetlinks.json
-```
-
-HTTP 200, Content-Type application/json, no Bearer requirement and no redirect:
-
-```json
-[
-  {
-    "relation": ["delegate_permission/common.handle_all_urls"],
-    "target": {
-      "namespace": "android_app",
-      "package_name": "com.yasminhosam.brandora",
-      "sha256_cert_fingerprints": ["51:F3:C3:2A:04:7C:8B:34:0B:24:28:DE:8F:80:6F:1F:31:96:EC:AB:93:04:FF:B6:C2:DE:E6:4B:73:56:08:2E"]
-    }
-  }
-]
-```
-
-Intended owner-configured runtime reset setting, not changed by this guide:
-
-```dotenv
-AUTH_RESET_URL=https://brandora-backend-production-85ec.up.railway.app/auth/reset-password
-```
-
-Android applicationId/package: `com.yasminhosam.brandora`. Add the following filter
-to the exported Activity that handles reset links:
-
-```xml
-<intent-filter android:autoVerify="true">
-    <action android:name="android.intent.action.VIEW" />
-    <category android:name="android.intent.category.DEFAULT" />
-    <category android:name="android.intent.category.BROWSABLE" />
-    <data android:scheme="https"
-          android:host="brandora-backend-production-85ec.up.railway.app"
-          android:path="/auth/reset-password" />
-</intent-filter>
-```
-
-The association currently contains only the supplied **debug** certificate. The
-installed APK must match it. Release/Play signing requires a separately approved
-fingerprint update. Debug keystores on different machines may differ. Domain
-verification is a device/deployment step, not proven by local backend tests.
-
-POST `/auth/forgot-password` request `{ "email": "owner@example.com" }`, response
-200 when configured, equally for known/unknown email:
+Show an eight-character code input and a new-password/confirmation screen.
+Keep leading zeroes: `otp` must be a string of exactly eight ASCII digits.
+There is no verify-only endpoint: server verification and password change
+happen together when submitting:
 
 ```json
-{ "message": "If the account exists, a password reset has been requested. Check your email; delivery may be delayed or unavailable." }
+{ "email": "owner@example.com", "otp": "01234567", "newPassword": "NewSecurePassword123!" }
 ```
 
-This does not confirm delivery. Disabled/unconfigured email returns 503
-AUTH_EMAIL_UNAVAILABLE without revealing account existence. SMTP delivery requires
-separate approved runtime settings; hosting assetlinks.json alone does not enable it.
+POST this body to `/auth/reset-password`. Expect 204 empty on success, clear
+code/password/session state and require login. Existing sessions are invalidated.
+Invalid/expired/used/superseded codes return 400 AUTH_RESET_INVALID; malformed
+input or the obsolete `token` property returns 400 VALIDATION_ERROR.
 
-Mailer links append a fragment, not a query:
+Codes expire after 15 minutes and work once. Resend calls forgot-password again
+and invalidates the previous code. Limits are 3 sends/account and 10/IP per
+15 minutes; reset requests are 5/account and 10/IP per 15 minutes, not per code.
+Resending does not replenish guess attempts. Respect 429 Retry-After; 503
+AUTH_RATE_LIMIT_UNAVAILABLE means retry later. Email configuration failures use
+503 AUTH_EMAIL_UNAVAILABLE; provider errors still give generic forgot 200.
 
-```text
-https://brandora-backend-production-85ec.up.railway.app/auth/reset-password#token=<opaque-reset-token>
-```
-
-Handle the Activity's initial Intent and any onNewIntent delivery. Validate HTTPS,
-the exact host and exact `/auth/reset-password` path before extracting the fragment.
-Illustrative extraction without logging:
-
-```kotlin
-fun extractResetToken(uri: android.net.Uri): String? {
-    if (uri.scheme != "https" ||
-        uri.host != "brandora-backend-production-85ec.up.railway.app" ||
-        uri.path != "/auth/reset-password") return null
-    val fragment = uri.encodedFragment ?: return null
-    val entries = fragment.split('&').map { it.split('=', limit = 2) }
-        .filter { android.net.Uri.decode(it[0]) == "token" }
-    if (entries.size != 1) return null
-    return entries.single().getOrNull(1)?.let(android.net.Uri::decode)
-        ?.takeIf { it.isNotBlank() }
-}
-```
-
-The fragment is parsed locally, with no navigation or network request. It never
-reaches normal HTTP access logs.
-Do not copy it into a query string, WebView analytics, crash reports, external
-redirects or HTTP logs. Keep it transiently in memory and clear after completion.
-
-POST `/auth/reset-password` body:
-
-```json
-{ "token": "<opaque-reset-token-from-fragment>", "newPassword": "NewSecurePassword123!" }
-```
-
-204 empty means success: single-use token consumed, password changed, existing
-sessions revoked. Clear credentials and require login with the new password.
-Reset tokens expire after 15 minutes; a newer request supersedes the previous
-token. Invalid/expired/consumed tokens return 400 AUTH_RESET_INVALID; malformed
-token/password input can return 400 VALIDATION_ERROR. Keep POST reset behavior
-separate from Android's GET link opening: **no browser reset UI or GET reset-password
-handler is implemented**. Without an installed verified app there is no web fallback.
-
-After approved deployment and installation, Android 12+ verification commands:
-
-```sh
-adb shell pm verify-app-links --re-verify com.yasminhosam.brandora
-adb shell pm get-app-links com.yasminhosam.brandora
-adb shell am start -a android.intent.action.VIEW -c android.intent.category.BROWSABLE -d "https://brandora-backend-production-85ec.up.railway.app/auth/reset-password#token=dummy"
-```
-
-Allow time for verification and confirm the host is verified. Use a dummy token in
-shell history; real reset links must be opened privately from approved test email.
+Brevo uses AUTH_EMAIL_MODE=brevo, BREVO_API_KEY and a verified
+BREVO_SENDER_EMAIL. These are Backend settings, never Android credentials.
+Do not log, persist or send codes/passwords to analytics. No reset link,
+fragment parser or AUTH_RESET_URL is needed for recovery. Existing
+`/.well-known/assetlinks.json` is retained; see
+[association status](android-app-links.md) and [Auth contract](auth-api.md).
+Android and Backend must adopt this request contract together before release.
 
 ## 12. Implemented versus deferred, and integration decisions
 
@@ -1119,13 +1059,13 @@ shell history; real reset links must be opened privately from approved test emai
 | Import | Complete synchronous workflow, stable identities, per-group rollback, read pagination | Durable queue, resumable execution, file-hash dedup, select-existing-Product mapping |
 | Storage | Existing local file/snapshot storage | Persistent Railway volume/object storage; deliberately postponed |
 | Auth | Multi-business ownership, sessions/refresh/reset and shared DB limiter | Railway ingress/client-IP problem is not solved by App Links |
-| App Links | Public association JSON and existing POST reset | Deployment verification, release certificate, browser fallback and SMTP setup |
+| App Links | Public association JSON; recovery uses email OTP | Release certificate verification; Brevo sender setup and real inbox checks |
 
 Contract details that Android must handle explicitly, rather than guessing:
 
-1. Manual Products have no writable externalKey in Product CRUD; matching them to
-   a new imported code is not an implemented workflow. Agree on creation/import
-   ownership of a catalog before mixing these flows.
+1. Before importing a manually created Product, assign its externalKey through
+   Product POST/PATCH and use that exact code in the workbook. Changing/clearing
+   the code changes future matching and can cause a later import to insert a Product.
 2. Snapshot validation and current preview can differ. READY includes invalid
    groups; preview can exclude additional groups after concurrent edits.
 3. Preview INSERT means Variant insertion and may lack Product/Variant IDs. The

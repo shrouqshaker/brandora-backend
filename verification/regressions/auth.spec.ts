@@ -316,6 +316,7 @@ describe('Complete controller authorization policy inventory', () => {
     if (scope === 'public')
       expect([
         'AppLinksController.assetLinks',
+        'AiController.data', // Its separate mandatory S2S guard is inventory-tested.
         'AuthController.register',
         'AuthController.login',
         'AuthController.refresh',
@@ -324,7 +325,7 @@ describe('Complete controller authorization policy inventory', () => {
         'AuthController.resetPassword',
       ]).toContain(label);
   });
-  it('covers 49 endpoints with six public Auth operations and public App Links', () => {
+  it('covers 49 endpoints including owner-only images', () => {
     expect(routes).toHaveLength(49);
     expect(routes.filter((route) => route.scope === 'public')).toHaveLength(7);
   });

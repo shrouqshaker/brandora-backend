@@ -1,5 +1,11 @@
 # Variant-only inventory rollout and Orders integration
 
+This document retains the historical inventory migration audit and its old
+physical-name SQL. The current local model is Product/productId with ProductImage;
+use [the current naming/image rollout](product-domain-database-rollout.md) for
+release planning. Do not execute the historical cleanup suggestions below as
+part of the naming/image change.
+
 This branch starts at `57937297ec27cbbd1b427e88b16da2dc0a8106b0` on main.
 It does not merge `feature/customers-conversations`, modify Orders, or contact
 another developer. Shared-schema coordination still requires team review of
@@ -11,15 +17,16 @@ still share files with this branch. No Yomna code or branch was changed/included
 
 ## Final schema
 
-`CatalogItem` remains the product metadata model. Its `stockQuantity` and
+`Product` is the current product metadata model (named `CatalogItem` when the
+historical inventory migration ran). Its `stockQuantity` and
 `trackInventory` columns are removed. `ProductVariant` owns those fields:
 untracked means `(false, null)`; tracked means `(true, integer >= 0)`.
-Simple products have one `{}` Default Variant, including new legacy Catalog
-creates. Existing products without variants are not silently backfilled.
+Simple products have one `{}` Default Variant, created by Products or Excel
+Import. Existing products without variants are not silently backfilled.
 Configurable variants keep independent stock. Stock and tracking are forbidden
-in Product, Variant and Catalog metadata requests.
+in Product and Variant metadata requests.
 
-Every movement has required `businessId`, `catalogItemId` and `variantId`.
+Every movement has required `businessId`, `productId` and `variantId`.
 Composite foreign keys prove the variant belongs to that product and business.
 Movements retain references on soft deletion and cannot cascade-delete history.
 Audit rows contain nullable before/after quantities, tracking before/after,
@@ -34,7 +41,7 @@ variants. SQL-only checks/indexes must remain in migration verification.
 Inject `InventoryService` from the exported `InventoryModule`.
 
 ```ts
-type VariantScope = { businessId: string; catalogItemId: string; id: string };
+type VariantScope = { businessId: string; productId: string; id: string };
 
 inventory.deductForOrder(tx, scope, quantity, orderLineId);
 inventory.restoreForOrder(tx, scope, quantity, orderLineId);
@@ -173,7 +180,15 @@ atomicity; no obsolete tests are moved to archives or excluded by configuration.
 
 ## Implementation review inventory (2026-10-29)
 
-Final local verification: Prisma validate and generation/build passed;
+Historical verification snapshot (before removal of the legacy Catalog API):
+current product CRUD is documented in [Products API](products-api.md). The
+retired Catalog paths in the historical file list below are no longer runtime
+modules or executable tests. Current non-AI release inventory is 49 routes: 42
+owner-JWT-protected and seven anonymous routes. Catalog API removal alone
+requires no schema change;
+the later physical rename and ProductImage feature do require the new migrations.
+
+Historical local verification (2026-10-29; not the current release counts): Prisma validate and generation/build passed;
 `npm test` passed all 23 suites and 673 tests, with 0 failures, plus the native
 Business adapter's 16 tests. The variant inventory/import PostgreSQL verifier
 passed 20 tests and 129 HTTP assertions. Auth, Auth Hardening and Products

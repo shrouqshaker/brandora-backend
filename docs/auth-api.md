@@ -120,156 +120,126 @@ access tokens on the **next protected request**, because the guard checks curren
 session/version state. Already-running operations are not cancelled. Repeating
 logout-all with its now-invalid access token returns 401.
 
-## Forgot and reset password
+## Forgot and reset password (OTP only)
 
-`POST /auth/forgot-password` accepts only `{ "email": "owner@example.com" }`.
-With configured email delivery it returns 200 for known and unknown addresses:
+This release replaces email reset links with an eight-digit email OTP. Android
+must update its reset request at the same rollout; legacy token bodies are rejected.
+There is no separate verify-only endpoint or password-reset session: submit the
+code together with the new password. Do not treat a frontend code-entry screen
+as proof that the server has verified the code.
 
-```json
-{
-  "message": "If the account exists, a password reset has been requested. Check your email; delivery may be delayed or unavailable."
-}
-```
-
-No reset token, User ID or delivery result is returned. Normal responses have a
-three-second minimum duration to reduce known/unknown timing differences; this
-is practical padding, not a formal constant-time guarantee. The random reset
-token expires in **15 minutes**. Only its SHA-256 digest is stored, in one reusable
-row per User. A newer request invalidates the previous token. Delivery failures
-are logged without credentials/tokens, marked FAILED and consumed in the DB;
-the public response stays generic to avoid enumeration. The response is not a
-delivery confirmation.
-
-`POST /auth/reset-password` accepts:
+1. POST `/auth/forgot-password` with `{ "email": "owner@example.com" }`.
+2. Read the eight-digit code from the email and keep it as a string, including
+   leading zeroes. Do not put codes in URLs, logs, analytics or persistent storage.
+3. POST `/auth/reset-password` with:
 
 ```json
 {
-  "token": "<reset-token-from-email-link>",
+  "email": "owner@example.com",
+  "otp": "01234567",
   "newPassword": "NewSecurePassword123!"
 }
 ```
 
-The registration password policy applies unchanged. Success returns 204, atomically
-consumes the token, writes a new Argon2id hash, increments authVersion and revokes
-all refresh sessions. Concurrent reuse allows exactly one success. Expired,
-consumed, superseded and invalid tokens return 400 AUTH_RESET_INVALID. Login with
-the new password is required afterward. Password/ownership data is never reset
-or reassigned by any other endpoint.
+Success is 204 with an empty body. The server atomically consumes the code,
+changes the password, increments authVersion and invalidates all existing
+sessions. Require normal login afterward. The registration password policy is
+unchanged. Email is trimmed/lowercased; the OTP is exactly eight ASCII digits,
+never converted to a number or trimmed. Unexpected properties, including the
+legacy `token`, and malformed fields return 400 VALIDATION_ERROR.
 
-Email is disabled by default. Configure approved transactional SMTP credentials
-before enabling it. Production requires a verified sending domain; Resend's
-restricted development sender is described below.
+Wrong, expired, consumed, superseded or unconfirmed-delivery codes return the
+existing generic 400 AUTH_RESET_INVALID message, “Invalid or expired password
+reset token”. The wording intentionally preserves the error contract.
+Only SENT codes redeem, with a second check under the user lock. No account
+lookup result, code or delivery status appears in the response.
 
-```text
-AUTH_EMAIL_MODE=smtp
-AUTH_RESET_URL=https://<your-verified-app-link-domain>/auth/reset-password
-SMTP_HOST=<provider-host>
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=<provider-user>
-SMTP_PASSWORD=<deployment-secret>
-SMTP_FROM=<verified-brandora-sender>
+Configured forgot requests return the same HTTP 200 for known/unknown accounts:
+
+```json
+{ "message": "If the account exists, a password reset has been requested. Check your email; delivery may be delayed or unavailable." }
 ```
 
-Port 587 requires STARTTLS; port 465 uses SMTP_SECURE=true. TLS certificate
-validation cannot be disabled by these settings. The transport has bounded
-timeouts and a 2.5-second send deadline. No actual third-party email is sent by
-tests: they inject a controlled mailer. Live SMTP deliverability remains a
-deployment configuration/verification requirement.
+Delivery is synchronous with an 8-second HTTPS header/body timeout and an
+8.5-second minimum forgot response duration. This remains practical timing
+padding, not a constant-time guarantee; unusually slow databases can exceed it.
+Invalid mail configuration returns the same 503 AUTH_EMAIL_UNAVAILABLE before
+account lookup. Provider failures remain generic 200 with sanitized logging.
+They attempt to mark the matching code FAILED and consumed; PENDING codes remain
+unusable if that database write also fails. API acceptance is not inbox delivery.
 
-Without valid configuration, forgot-password returns the same 503
-AUTH_EMAIL_UNAVAILABLE for all addresses before account lookup. It never returns
-a development reset token or pretends email was delivered.
+### Code security, limits and resend
 
-Android must configure a verified HTTPS App Link for AUTH_RESET_URL's exact
-domain/path. Email links append `#token=<opaque-reset-token>`; read the fragment,
-then POST the token and new password as JSON. Fragments keep tokens out of normal
-HTTP access logs. Disable link tracking and redact complete reset links in email
-and mobile diagnostics. A web fallback must use no-referrer and never log the
-fragment or include it in analytics. Plain HTTP and custom-scheme reset URLs are
-not accepted.
+Codes use Node's cryptographic randomInt over 100,000,000 values, expire after
+15 minutes and are single-use. Only an HMAC-SHA256 fingerprint, bound to the
+email and a password-reset purpose context, is stored in the existing
+PasswordResetToken.tokenHash column. Plain SHA256 is insufficient for a short
+numeric code because a database leak would enable offline enumeration.
 
-### Resend SMTP development setup (owner action; no email sent by setup)
+The HMAC uses the existing AUTH_RATE_LIMIT_SECRET, falling back to JWT_SECRET;
+the selected key must be at least 32 bytes and identical on all replicas.
+No additional secret or migration is introduced. Rotating the selected key
+invalidates outstanding codes. Refresh/access-token hashing and JWT behavior
+are unchanged.
 
-The existing environment names are `AUTH_EMAIL_MODE`, `AUTH_RESET_URL`,
-`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD` and
-`SMTP_FROM`. There is no `RESEND_API_KEY` or recipient environment setting in this
-implementation. The forgot-password request's registered email is the recipient.
+Forgot/resend limits remain 3/account and 10/IP per 15 minutes. Reset attempts,
+including failed guesses, are limited by the shared database rate store to
+5/account and 10/IP per 15 minutes, regardless of the submitted code. These are
+fixed-window request limits, not five guesses for every new code. Changing IP,
+restarting a process or requesting another code does not clear the account
+bucket. Store failures fail closed with AUTH_RATE_LIMIT_UNAVAILABLE; exhaustion
+returns 429 AUTH_RATE_LIMITED with Retry-After. Do not lock the user's login.
 
-Revoke the previously exposed Resend key in the Resend dashboard. Treat it as
-compromised even if it still works. Create a new sending key and enter it privately
-into the local process environment as `SMTP_PASSWORD`; never paste it into chat,
-source files, shell command history, screenshots or logs. The repository example
-and commands contain no key. This setup does not alter the local `.env` or any
-Resend account settings automatically.
+Resend uses the same forgot endpoint. Each new request replaces the previous
+code under the user lock, including when the new delivery fails. An immediate
+RNG repeat of the previous code is regenerated. There is no automatic provider
+retry, queue or background worker. Out-of-order emails may contain obsolete
+codes: use the latest request, and respect Retry-After before trying again.
 
-Use the following non-secret local settings and inject the new password separately:
+### Brevo configuration and sender verification
 
 ```dotenv
-AUTH_EMAIL_MODE=smtp
-AUTH_RESET_URL=https://reset.example.invalid/auth/reset-password
-SMTP_HOST=smtp.resend.com
-SMTP_PORT=465
-SMTP_SECURE=true
-SMTP_USER=resend
-SMTP_FROM=onboarding@resend.dev
-# SMTP_PASSWORD must be supplied privately as a local environment variable.
+AUTH_EMAIL_MODE=brevo
+BREVO_API_KEY=<private-api-key>
+BREVO_SENDER_EMAIL=<verified-bare-email-address>
 ```
 
-The `.env.example` keeps `AUTH_EMAIL_MODE=disabled` and `SMTP_PASSWORD` empty.
-Port 465 connects with implicit TLS (`secure: true`); certificate validation stays
-enabled. No credentials, certificate bypass, SMTP debug logging or provider SDK
-are added to source. See [Resend SMTP settings](https://resend.com/docs/send-with-smtp).
+Email defaults to disabled. Use an actual Brevo API key, not SMTP credentials.
+Verify the exact sender in the intended Brevo account and authenticate the
+domain you control. See [Brevo sender/domain requirements](https://developers.brevo.com/docs/getting-started-with-senders-and-domains).
+Neither syntax validation nor mocked tests establish provider verification.
+No provider/DNS/Railway settings are changed automatically. Never publish keys.
 
-No custom **sending** domain is needed for this development test: Resend restricts
-`onboarding@resend.dev` to the email associated with the Resend account. Register
-that same address as a User in the disposable local Brandora database. Do not try
-other recipients or add a hardcoded recipient override to the backend. Sending
-to other users requires a verified domain and an appropriate sender. See
-[Resend's development-domain restriction](https://resend.com/docs/knowledge-base/403-error-resend-dev-domain).
+POST https://api.brevo.com/v3/smtp/email uses the api-key header, sender/to
+objects and textContent; a nonempty messageId confirms API acceptance only.
+Redirects, malformed responses, provider errors and timeouts produce sanitized
+failures. Tests never send email. Legacy resend/smtp modes are rejected;
+RESEND_API_KEY, SMTP_FROM and the old SMTP transport variables are ignored.
+AUTH_RESET_URL is no longer used by password recovery. The public Android
+association JSON remains available, but no code or link is redeemed via GET.
+Previously emailed opaque tokens cannot be redeemed by this OTP-only API.
 
-`https://reset.example.invalid/auth/reset-password` is an intentionally
-non-deployed placeholder, not a functioning Android URL. The mailer validates URL
-syntax, not hosting or App Link ownership. Mail receipt and manual API reset can
-be tested with this placeholder; clicking it will not complete a reset. End-to-end
-Android testing requires an owner-supplied HTTPS development URL, a matching
-Android intent filter and the appropriate App Link association. Keep the token
-in the fragment; do not change to a custom scheme or claim a verified link exists.
-No Android package name, deployed page or domain is assumed by this backend.
+### Verification and rollout gates
 
-When the owner is ready to send a real test email:
+Run the mocked Brevo, password-reset, password-reset-otp, auth-hardening and
+app-links suites. They cover input validation, expiry, single use, locked
+rechecks, delivery failures, shared attempt limits and session invalidation.
+See [verification](../verification/README.md). The existing local PostgreSQL
+hardening script additionally exercises reset races; do not run it against
+production or claim its previous link-mode results validate the new contract.
 
-1. Revoke the compromised key, create a replacement and inject it privately.
-   Use an isolated local PostgreSQL database and local API only. Keep existing
-   JWT settings; never point this test at Neon production.
-2. Set the non-secret SMTP values above, decide whether to test only receipt/manual
-   reset or supply a working Android URL, then restart the local API. Do not dump
-   environment variables or enable Nodemailer debug logging.
-3. Register or log in to a disposable Brandora User with the Resend account email.
-   Keep a test access/refresh session privately if testing session invalidation.
-4. In a private local API client, send `POST /auth/forgot-password` to
-   `http://127.0.0.1:3000` with JSON `{ "email": "<RESEND_ACCOUNT_EMAIL>" }`.
-   Expect generic HTTP 200, not confirmation of delivery. Check the owner's inbox,
-   spam folder and Resend email status privately; do not export bodies or links.
-5. Extract the `token` from the email link's `#token=...` fragment privately, and
-   send `POST /auth/reset-password` with `token` and a new disposable password.
-   Expect 204. Do not put either value in URL queries, command history or shared
-   API-client collections. With the placeholder URL, this is a manual API test.
-6. Reusing the token must return 400 `AUTH_RESET_INVALID`. The old password must
-   fail, the new password must log in, and old access/refresh sessions must fail.
-   Requesting a newer reset supersedes the older one; tokens expire in 15 minutes.
-7. Missing configuration returns 503 `AUTH_EMAIL_UNAVAILABLE` for both known and
-   unknown accounts. With configuration present, SMTP failures still return the
-   generic 200 to avoid account enumeration, emit a sanitized server error and
-   mark the reset FAILED/consumed. SMTP acceptance is not inbox delivery. Do not
-   retry repeatedly: a new request invalidates the previous token and rate limits
-   apply. Inspect provider status and sanitized logs, never raw SMTP exceptions.
-8. Set `AUTH_EMAIL_MODE=disabled` and remove the injected SMTP secret after testing.
+Real email still requires separate explicit approval. Use a disposable local
+account/database and inbox you control; privately inject verified Brevo settings.
+Check acceptance, provider delivered/bounced status and actual inbox/spam receipt
+separately. Enter the code in Android, reset within 15 minutes, check old-password
+failure, new-password login, code reuse rejection and revoked access/refresh
+sessions. Use separate codes for expiry and resend checks; do not log them.
+Disable test sending afterward. No real email was sent by implementation/tests.
 
-Maintained mocked transport and failure-response checks run with
-`npm test -- --runTestsByPath verification/regressions/resend-smtp.spec.ts`.
-They never connect to Resend or send email. The existing isolated PostgreSQL
-hardening verifier continues to test single-use reset and session revocation.
+Coordinate the Android email/otp/newPassword request with this API change before
+deployment. Auth needs no schema change; the separate Product/ProductImage work
+still needs its [coordinated database rollout](product-domain-database-rollout.md).
+Security guidance: [OWASP Forgot Password](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html).
 
 ## Profile and switching businesses
 
@@ -344,7 +314,7 @@ Errors retain `{ statusCode, code, message, error }`:
 | 409 EMAIL_UNAVAILABLE           | Registration email unavailable                                         |
 | 429 AUTH_RATE_LIMITED           | Back off before retrying                                               |
 | 401 AUTH_REFRESH_INVALID        | Clear session and log in again                                         |
-| 400 AUTH_RESET_INVALID          | Request a new reset link                                               |
+| 400 AUTH_RESET_INVALID          | Request a new reset code within rate limits                             |
 | 503 AUTH_EMAIL_UNAVAILABLE      | Recovery configuration is unavailable; retry after operator resolution |
 | 503 AUTH_RATE_LIMIT_UNAVAILABLE | Retry after the Retry-After interval                                   |
 

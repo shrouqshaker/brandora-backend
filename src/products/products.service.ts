@@ -11,6 +11,7 @@ import {
   writeError,
 } from './product-access.service';
 import { productInclude, productResponse } from './product-presenter';
+import { colorOption } from './product-image-policy';
 import {
   attributes,
   productOptions,
@@ -27,8 +28,14 @@ export class ProductsService {
 
   private metadata(
     dto: CreateProductDto | UpdateProductDto,
-  ): Prisma.CatalogItemUncheckedUpdateInput {
+  ): Prisma.ProductUncheckedUpdateInput {
     return {
+      ...(dto.colorOptionName !== undefined
+        ? { colorOptionName: dto.colorOptionName }
+        : {}),
+      ...(dto.externalKey !== undefined
+        ? { externalKey: dto.externalKey }
+        : {}),
       ...(dto.name !== undefined ? { name: dto.name } : {}),
       ...(dto.description !== undefined
         ? { description: dto.description }
@@ -51,15 +58,18 @@ export class ProductsService {
     const options = productOptions(
       dto.options === undefined ? {} : dto.options,
     );
-    // Use a create-specific whitelist. Never forward inventory or legacy identity fields.
-    const data: Prisma.CatalogItemUncheckedCreateInput = {
+    colorOption(options, dto.colorOptionName ?? null);
+    // Use a create-specific whitelist. Never forward inventory or legacy category fields.
+    const data: Prisma.ProductUncheckedCreateInput = {
       businessId,
       name: dto.name,
+      externalKey: dto.externalKey,
       description: dto.description,
       categoryId: dto.categoryId,
       basePrice:
         dto.basePrice == null ? null : new Prisma.Decimal(dto.basePrice),
       options,
+      colorOptionName: dto.colorOptionName,
       isActive: dto.isActive,
       ...(dto.attributes !== undefined
         ? { attributes: attributes(dto.attributes) }
@@ -69,10 +79,10 @@ export class ProductsService {
       return await this.prisma.$transaction(async (tx) => {
         await this.access.business(businessId, tx);
         await this.access.category(businessId, dto.categoryId, tx);
-        const product = await tx.catalogItem.create({ data });
+        const product = await tx.product.create({ data });
         if (!Object.keys(options).length)
           await tx.productVariant.create({
-            data: { businessId, catalogItemId: product.id },
+            data: { businessId, productId: product.id },
           });
         return this.read(tx, businessId, product.id);
       });
@@ -86,11 +96,11 @@ export class ProductsService {
       async (tx) => {
         await this.access.business(businessId, tx);
         const where = { businessId };
-        const totalCount = await tx.catalogItem.count({ where });
+        const totalCount = await tx.product.count({ where });
         const products =
           page.offset >= totalCount
             ? []
-            : await tx.catalogItem.findMany({
+            : await tx.product.findMany({
                 where,
                 take: page.limit,
                 skip: page.offset,
@@ -125,11 +135,19 @@ export class ProductsService {
     try {
       return await this.prisma.$transaction(
         async (tx) => {
-          await this.access.lock(businessId, id, tx);
+          const parent = await this.access.lock(businessId, id, tx);
           await this.access.category(businessId, dto.categoryId, tx);
+          if (proposed !== undefined || dto.colorOptionName !== undefined) {
+            const nextOptions = proposed ?? productOptions(parent.options);
+            const nextColor =
+              dto.colorOptionName === undefined
+                ? (parent.colorOptionName ?? null)
+                : dto.colorOptionName;
+            colorOption(nextOptions, nextColor);
+          }
           if (proposed !== undefined) {
             const variants = await tx.productVariant.findMany({
-              where: { businessId, catalogItemId: id },
+              where: { businessId, productId: id },
               select: { optionValues: true },
             });
             for (const variant of variants) {
@@ -148,10 +166,10 @@ export class ProductsService {
             // variants. An existing {} combination is already its default.
             if (!Object.keys(proposed).length && !variants.length)
               await tx.productVariant.create({
-                data: { businessId, catalogItemId: id },
+                data: { businessId, productId: id },
               });
           }
-          await tx.catalogItem.update({ where: { id, businessId }, data });
+          await tx.product.update({ where: { id, businessId }, data });
           return this.read(tx, businessId, id);
         },
         { maxWait: 5000, timeout: 10000 },
@@ -165,7 +183,7 @@ export class ProductsService {
     try {
       await this.prisma.$transaction(async (tx) => {
         await this.access.lock(businessId, id, tx);
-        await tx.catalogItem.update({
+        await tx.product.update({
           where: { id, businessId },
           data: { isActive: false },
         });
@@ -182,18 +200,18 @@ export class ProductsService {
   ) {
     if (!ids.length) return new Set<string>();
     const rows = await tx.productVariant.groupBy({
-      by: ['catalogItemId'],
+      by: ['productId'],
       where: {
         businessId,
-        catalogItemId: { in: ids },
+        productId: { in: ids },
         isActive: true,
         OR: [
           { unitPrice: { not: null } },
-          { catalogItem: { basePrice: { not: null } } },
+          { product: { basePrice: { not: null } } },
         ],
       },
     });
-    return new Set(rows.map((row) => row.catalogItemId));
+    return new Set(rows.map((row) => row.productId));
   }
 
   private async read(
@@ -201,7 +219,7 @@ export class ProductsService {
     businessId: string,
     id: string,
   ) {
-    const product = await tx.catalogItem.findFirst({
+    const product = await tx.product.findFirst({
       where: { id, businessId },
       include: productInclude,
     });
@@ -219,6 +237,12 @@ export class ProductsService {
 
   private rethrow(error: unknown): never {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2002')
+        fail(
+          ErrorCode.PRODUCT_EXTERNAL_KEY_CONFLICT,
+          HttpStatus.CONFLICT,
+          'A product with this external key already exists in this business',
+        );
       if (error.code === 'P2025')
         fail(
           ErrorCode.PRODUCT_NOT_FOUND,

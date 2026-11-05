@@ -61,11 +61,11 @@ export class ForgotPasswordDto {
   @IsEmail({ allow_utf8_local_part: false })
   email!: string;
 }
-export class ResetPasswordDto {
+export class ResetPasswordDto extends ForgotPasswordDto {
   @IsString()
-  @Length(80, 80)
-  @Matches(/^[0-9a-f-]{36}\.[A-Za-z0-9_-]{43}$/)
-  token!: string;
+  @Length(8, 8)
+  @Matches(/^[0-9]{8}$/)
+  otp!: string;
 
   @IsString()
   @PasswordLength(12)

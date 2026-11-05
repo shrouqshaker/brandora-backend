@@ -116,7 +116,7 @@ describe('Category/Product/Variant HTTP boundaries (mocked feature services)', (
     [categories, { name: ' ' }],
     [products, { name: 'Valid', stockQuantity: 3 }],
     [products, { name: 'Valid', trackInventory: true }],
-    [products, { name: 'Valid', externalKey: 'forbidden' }],
+    [products, { name: 'Valid', externalKey: 'x'.repeat(201) }],
     [variants, { optionValues: {}, isActive: true }],
     [variants, { optionValues: {}, sku: ' ' }],
     [variants, { optionValues: {}, unitPrice: 1.2 }],

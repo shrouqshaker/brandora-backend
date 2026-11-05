@@ -1,6 +1,6 @@
 # Variant Inventory API
 
-Inventory belongs only to ProductVariant. CatalogItem is product metadata and no
+Inventory belongs only to ProductVariant. Product is product metadata and no
 longer has `stockQuantity` or `trackInventory`. Every simple product created by
 Products or Catalog has a Default Variant with `optionValues: {}`. Resolve its
 UUID through Products/Variants; do not send a product UUID as a variant UUID.
@@ -14,7 +14,7 @@ Error bodies remain `{ statusCode, code, error, message }`.
 
 ## Set stock or tracking
 
-`POST /businesses/:businessId/products/:catalogItemId/variants/:variantId/inventory/adjust`
+`POST /businesses/:businessId/products/:productId/variants/:variantId/inventory/adjust`
 
 ```json
 { "quantity": 15 }
@@ -61,7 +61,7 @@ back stock. Database CHECKs enforce nonnegative tracked stock and audit arithmet
 
 ## Variant history
 
-`GET /businesses/:businessId/products/:catalogItemId/variants/:variantId/inventory/movements?limit=20&offset=0`
+`GET /businesses/:businessId/products/:productId/variants/:variantId/inventory/movements?limit=20&offset=0`
 
 ## Business history
 

@@ -1,10 +1,24 @@
-# Categories, Products and ProductVariants (Task 2)
+# Canonical Products API, Categories and ProductVariants
 
-These APIs use Category, CatalogItem and ProductVariant models. The variant-only
+Products is the single public API for product CRUD at
+`/businesses/:businessId/products`. The legacy `/catalog-items` endpoints have
+been removed without aliases or redirects. `Product` is the Prisma model and
+physical table after the forward-only naming migration; the existing table is
+renamed in place, never recreated. Excel Import retains its product/variant/stock
+workflow and matches products using business-scoped `externalKey` grouping identities.
+
+These APIs use Category, Product, ProductVariant and ProductImage models. The variant-only
 inventory upgrade removes product-level stock and upgrades Excel imports; see
 [Inventory](inventory-api.md), [Imports](imports-api.md) and the
 [migration/Orders coordination contract](variant-inventory-rollout.md).
 Bearer tokens and active OWNER membership are required; see [Authentication](auth-api.md).
+
+Product responses include optional `colorOptionName` and active `images`.
+Create/update may set `colorOptionName` to an exact option key or null; omission
+preserves it on update. This legacy metadata does not associate images with Variants.
+Main/Gallery multipart routes, ordering and
+failure recovery are documented in [Product images](product-images.md).
+Physical naming changes require the [coordinated database rollout](product-domain-database-rollout.md).
 
 The lifecycle rules below cover soft deletion and explicit reactivation without
 introducing stock or order workflows.
@@ -49,6 +63,7 @@ POST requires name; PATCH supports partial updates with at least one field:
 | Field       | Input and update behavior                                                                                                       |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | name        | Trimmed nonblank string, max 200; cannot be null                                                                                |
+| externalKey | Optional trimmed string, max 200; case-sensitive and unique per business, including inactive products; null or blank clears; omission preserves on PATCH |
 | description | Optional string, max 5000; null clears                                                                                          |
 | categoryId  | Optional UUID from the same business; null clears                                                                               |
 | basePrice   | Optional nonnegative decimal string, up to 10 integer digits / 2 decimals; null clears                                          |
@@ -60,10 +75,18 @@ Numbers, exponents, signs, currency/grouping separators, and excess precision
 are rejected for prices. Responses use fixed two-decimal strings or null, including
 zero prices. No JavaScript floating-point arithmetic is used for money.
 
-externalKey, legacy category, stockQuantity, trackInventory, IDs and timestamps
-are not writable through this API. Existing externalKey/category fields and all
-variant inventory are preserved by metadata updates and deletion. `category` in responses
+Legacy category, stockQuantity, trackInventory, IDs and timestamps are not
+writable through this API. Existing externalKey/category fields and all
+variant inventory are preserved when omitted from metadata updates and on deletion. `category` in responses
 is the legacy category string, not the current name of the linked Category.
+
+Set `externalKey` on POST or assign it later with
+`PATCH /businesses/:businessId/products/:productId` and
+`{ "externalKey": "MANUAL-001" }` before importing that product code. Excel Import
+then updates the same Product and matching Variant rather than inserting another
+Product. A duplicate code in the same business returns `409 PRODUCT_EXTERNAL_KEY_CONFLICT`;
+the same code is allowed in another business. Changing or clearing a code changes
+future import matching; an import with the former code can create a new product.
 
 Example:
 
@@ -126,7 +149,7 @@ permitted if every existing combination stays valid.
   explicit PATCH with `options: {}` or POST of the `{}` variant combination.
 
 All new Product writes and Variant writes take a tenant-scoped PostgreSQL
-`SELECT ... FOR UPDATE` lock on the same parent CatalogItem before validating or
+`SELECT ... FOR UPDATE` lock on the same parent Product before validating or
 mutating. Variant creation/PATCH and option edits therefore cannot race into an
 invalid definition/combination state. External direct SQL writers must follow the
 same protocol for option-definition semantics; tenant and uniqueness constraints
@@ -153,7 +176,7 @@ The same trimming/case rules apply to definitions and selections. Different JSON
 key orders are equivalent under the Task 1 database unique index. Inactive
 combinations and SKUs remain reserved. A simple product accepts only `{}`.
 
-Responses include id, businessId, catalogItemId (the Product ID), sku, optionValues,
+Responses include id, businessId, productId, catalogItemId (retained JSON alias of productId), sku, optionValues,
 unitPrice, effectivePrice, trackInventory, stockQuantity, isActive and timestamps.
 Parent business/product scoping is checked for every operation, including reads.
 Creation or explicit reactivation under an inactive product returns PRODUCT_INACTIVE.
@@ -195,16 +218,17 @@ conflicts do not expose Prisma/SQL diagnostics.
 | VARIANT_SKU_CONFLICT     | 409  | SKU reserved in this business                                                |
 | VARIANT_OPTIONS_CONFLICT | 409  | Combination reserved for this product                                        |
 | PRODUCT_WRITE_CONFLICT   | 409  | Transaction contention or interactive-transaction timeout; refresh and retry |
+| PRODUCT_EXTERNAL_KEY_CONFLICT | 409 | Product externalKey reserved in this business, including inactive products |
 
 Unexpected errors retain the existing sanitized 500 response. There is no Orders
 API here. Stock changes belong exclusively to InventoryService. Excel now creates
-or updates actual variants, and Catalog creates a Default Variant. Historical
+or updates actual variants, and simple Products create a Default Variant. Historical
 products without variants require explicit reconciliation; no automatic backfill.
 
 ## Verification
 
 `npm test` builds the app and runs all maintained regressions, including dynamic
-option/DTO policy and new HTTP boundary suites. Existing Catalog, Inventory and
+option/DTO policy and current Products HTTP boundary suites. Inventory and
 Excel Import tests remain enabled.
 
 `npm run test:products:postgres` runs real routes against a newly created,

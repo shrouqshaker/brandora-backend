@@ -12,7 +12,7 @@ import { AuthSessionsService } from './auth-sessions.service';
 import { AuthRateStore, PostgresAuthRateStore } from './auth-rate.store';
 import {
   PasswordResetMailer,
-  SmtpPasswordResetMailer,
+  BrevoPasswordResetMailer,
 } from './password-reset.mailer';
 import { AuthRetryInterceptor } from './auth-retry.interceptor';
 
@@ -31,7 +31,7 @@ import { AuthRetryInterceptor } from './auth-retry.interceptor';
     AuthSessionsService,
     AuthRetryInterceptor,
     { provide: AuthRateStore, useClass: PostgresAuthRateStore },
-    { provide: PasswordResetMailer, useClass: SmtpPasswordResetMailer },
+    { provide: PasswordResetMailer, useClass: BrevoPasswordResetMailer },
     AuthRateGuard,
     AuthGuard,
     { provide: APP_GUARD, useExisting: AuthGuard },

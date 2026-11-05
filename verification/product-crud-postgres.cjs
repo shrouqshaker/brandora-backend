@@ -440,7 +440,7 @@ async function main() {
 
   // Lifecycle checks use the actual application and database, never service mocks.
   const stockSnapshot = async () => ({
-    products: await prisma.catalogItem.findMany({
+    products: await prisma.product.findMany({
       orderBy: { id: 'asc' },
       select: { id: true },
     }),
@@ -454,7 +454,7 @@ async function main() {
   });
   const beforeLifecycle = await stockSnapshot();
   const defaultVariant = await prisma.productVariant.findFirstOrThrow({
-    where: { catalogItemId: simple.id },
+    where: { productId: simple.id },
   });
   const defaultPath = `${variants(simple.id)}/${defaultVariant.id}`;
   await call('patch', defaultPath, { isActive: false }, 200);
@@ -463,7 +463,7 @@ async function main() {
     false,
   );
   assert.equal(
-    await prisma.productVariant.count({ where: { catalogItemId: simple.id } }),
+    await prisma.productVariant.count({ where: { productId: simple.id } }),
     1,
   );
   await call(
@@ -525,9 +525,9 @@ async function main() {
 
   // Simulate stale external/legacy definitions only inside this disposable DB.
   const originalOptions = (
-    await prisma.catalogItem.findUniqueOrThrow({ where: { id: config.id } })
+    await prisma.product.findUniqueOrThrow({ where: { id: config.id } })
   ).options;
-  await prisma.catalogItem.update({
+  await prisma.product.update({
     where: { id: config.id },
     data: { options: { Mode: ['New'], Edition: ['I'] } },
   });
@@ -551,7 +551,7 @@ async function main() {
     200,
   );
   await call('patch', lifecyclePath, { isActive: false }, 200);
-  await prisma.catalogItem.update({
+  await prisma.product.update({
     where: { id: config.id },
     data: { options: originalOptions },
   });
@@ -564,20 +564,19 @@ async function main() {
   await call('patch', lifecyclePath, { isActive: false }, 200);
   assert.deepEqual(await stockSnapshot(), beforeLifecycle);
 
-  // Legacy identities, stock and audit links survive new metadata/deactivation APIs.
-  const legacy = await call(
-    'post',
-    '/catalog-items',
-    {
+  // Existing/import-managed identities survive canonical metadata/deactivation APIs.
+  // Seed pre-existing metadata directly; no retired HTTP API is needed to create it.
+  const legacy = await prisma.product.create({
+    data: {
       businessId: a,
-      name: 'Legacy',
+      name: 'Existing',
       externalKey: 'LEGACY-1',
       category: 'legacy text',
+      variants: { create: {} },
     },
-    201,
-  );
+  });
   const legacyVariant = await prisma.productVariant.findFirstOrThrow({
-    where: { catalogItemId: legacy.id, businessId: a },
+    where: { productId: legacy.id, businessId: a },
   });
   await call(
     'post',
@@ -586,7 +585,7 @@ async function main() {
     201,
   );
   const stockBefore = await prisma.inventoryMovement.findMany({
-    where: { catalogItemId: legacy.id },
+    where: { productId: legacy.id },
   });
   await call(
     'patch',
@@ -602,7 +601,7 @@ async function main() {
     409,
     'CATEGORY_IN_USE',
   );
-  const retained = await prisma.catalogItem.findUnique({
+  const retained = await prisma.product.findUnique({
     where: { id: legacy.id },
   });
   assert.equal(retained.externalKey, 'LEGACY-1');
@@ -615,7 +614,7 @@ async function main() {
   assert.equal(Object.hasOwn(retained, 'stockQuantity'), false);
   assert.deepEqual(
     await prisma.inventoryMovement.findMany({
-      where: { catalogItemId: legacy.id },
+      where: { productId: legacy.id },
     }),
     stockBefore,
   );
@@ -631,7 +630,7 @@ async function main() {
   locker = new Client({ ...local, database });
   await locker.connect();
   await locker.query('BEGIN');
-  await locker.query('SELECT id FROM "CatalogItem" WHERE id=$1 FOR UPDATE', [
+  await locker.query('SELECT id FROM "Product" WHERE id=$1 FOR UPDATE', [
     race.id,
   ]);
   const creating = http
@@ -910,7 +909,7 @@ async function main() {
   const variantsBefore = await prisma.productVariant.count();
   await prisma.$executeRawUnsafe(`CREATE FUNCTION task2_default_failure() RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN
-      IF EXISTS (SELECT 1 FROM "CatalogItem" WHERE id=NEW."catalogItemId" AND name='Task 2 atomic failure probe') THEN
+      IF EXISTS (SELECT 1 FROM "Product" WHERE id=NEW."productId" AND name='Task 2 atomic failure probe') THEN
         RAISE EXCEPTION 'Expected disposable verification failure';
       END IF;
       RETURN NEW;
@@ -928,7 +927,7 @@ async function main() {
         'INTERNAL_SERVER_ERROR',
       );
       assert.equal(
-        await prisma.catalogItem.count({
+        await prisma.product.count({
           where: { name: 'Task 2 atomic failure probe' },
         }),
         0,

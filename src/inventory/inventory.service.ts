@@ -8,7 +8,7 @@ import { createPagination } from '../common/pagination/pagination';
 
 export interface VariantScope {
   businessId: string;
-  catalogItemId: string;
+  productId: string;
   id: string;
 }
 export interface InventoryReference {
@@ -24,7 +24,7 @@ export interface QuantityChangeResult {
 }
 const movementSelect = {
   id: true,
-  catalogItemId: true,
+  productId: true,
   variantId: true,
   type: true,
   quantityBefore: true,
@@ -77,8 +77,8 @@ export class InventoryService {
   private async locked(tx: Prisma.TransactionClient, scope: VariantScope) {
     // Parent-first ordering matches product/variant lifecycle writers.
     const parent = await tx.$queryRaw<{ id: string; isActive: boolean }[]>`
-      SELECT "id", "isActive" FROM "CatalogItem"
-      WHERE "id"=${scope.catalogItemId}::uuid AND "businessId"=${scope.businessId}::uuid FOR UPDATE`;
+      SELECT "id", "isActive" FROM "Product"
+      WHERE "id"=${scope.productId}::uuid AND "businessId"=${scope.businessId}::uuid FOR UPDATE`;
     if (!parent.length)
       this.fail(
         ErrorCode.PRODUCT_NOT_FOUND,
@@ -89,7 +89,7 @@ export class InventoryService {
       where: {
         id: scope.id,
         businessId: scope.businessId,
-        catalogItemId: scope.catalogItemId,
+        productId: scope.productId,
       },
     });
     if (!variant)
@@ -108,7 +108,7 @@ export class InventoryService {
       where: {
         id: scope.id,
         businessId: scope.businessId,
-        catalogItemId: scope.catalogItemId,
+        productId: scope.productId,
       },
       select: { id: true },
     });
@@ -157,7 +157,13 @@ export class InventoryService {
                 take: pagination.limit,
                 skip: pagination.offset,
               });
-        return { pagination: createPagination(pagination, totalCount), items };
+        return {
+          pagination: createPagination(pagination, totalCount),
+          items: items.map((item) => ({
+            ...item,
+            catalogItemId: item.productId,
+          })),
+        };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
@@ -201,14 +207,14 @@ export class InventoryService {
       where: {
         id: scope.id,
         businessId: scope.businessId,
-        catalogItemId: scope.catalogItemId,
+        productId: scope.productId,
       },
       data: { trackInventory: tracking, stockQuantity: after },
     });
     const movement = await tx.inventoryMovement.create({
       data: {
         businessId: scope.businessId,
-        catalogItemId: scope.catalogItemId,
+        productId: scope.productId,
         variantId: scope.id,
         type,
         quantityBefore: before.stockQuantity,

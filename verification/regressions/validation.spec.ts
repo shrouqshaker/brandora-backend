@@ -23,7 +23,7 @@ describe('Variant import validation lifecycle and stored results', () => {
   }));
   const db = {
     importJob: { findUnique: jest.fn(), updateMany: jest.fn() },
-    catalogItem: { findMany: jest.fn() },
+    product: { findMany: jest.fn() },
     productVariant: { findMany: jest.fn() },
   };
   const storage = {
@@ -92,7 +92,7 @@ describe('Variant import validation lifecycle and stored results', () => {
       Object.assign(job, data);
       return { count: 1 };
     });
-    db.catalogItem.findMany.mockResolvedValue([]);
+    db.product.findMany.mockResolvedValue([]);
     db.productVariant.findMany.mockResolvedValue([]);
   });
   afterAll(async () => {
@@ -107,7 +107,7 @@ describe('Variant import validation lifecycle and stored results', () => {
       status: 'READY',
       summary: { totalRows: 4, validRows: 2, invalidRows: 1, skippedRows: 1 },
     });
-    expect(db.catalogItem.findMany.mock.calls[0][0].where.businessId).toBe(id);
+    expect(db.product.findMany.mock.calls[0][0].where.businessId).toBe(id);
     expect(
       JSON.parse(snapshot!.toString()).result.validRows[0].data.options,
     ).toEqual({});

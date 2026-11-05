@@ -26,7 +26,7 @@ describe('Variant import preview combined pagination and current database planni
   const db = {
     $transaction: jest.fn(),
     importJob: { findUnique: jest.fn() },
-    catalogItem: { findMany: jest.fn() },
+    product: { findMany: jest.fn() },
     productVariant: { findMany: jest.fn() },
   };
   const storage = { read: jest.fn() };
@@ -45,7 +45,7 @@ describe('Variant import preview combined pagination and current database planni
       {
         id: 'v-' + key,
         businessId: id,
-        catalogItemId: key,
+        productId: key,
         optionValues: {},
         sku: null,
         unitPrice: null,
@@ -92,10 +92,7 @@ describe('Variant import preview combined pagination and current database planni
       mapping,
     };
     db.importJob.findUnique.mockImplementation(async () => ({ ...job }));
-    db.catalogItem.findMany.mockResolvedValue([
-      product('UPDATE'),
-      product('SAME'),
-    ]);
+    db.product.findMany.mockResolvedValue([product('UPDATE'), product('SAME')]);
     db.productVariant.findMany.mockResolvedValue([]);
     const b = new Workbook();
     b.addWorksheet('Products').addRows([
@@ -121,7 +118,7 @@ describe('Variant import preview combined pagination and current database planni
       invalidRows: 1,
     });
     expect(r.body.updates[0]).toMatchObject({
-      catalogItemId: 'UPDATE',
+      productId: 'UPDATE',
       variantId: 'v-UPDATE',
       changes: { stockQuantity: { from: 5, to: 8 } },
     });
@@ -163,7 +160,7 @@ describe('Variant import preview combined pagination and current database planni
     },
   );
   it('recomputes the plan against current database values', async () => {
-    db.catalogItem.findMany.mockResolvedValue([]);
+    db.product.findMany.mockResolvedValue([]);
     const r = await request(app.getHttpServer())
       .get(`/imports/${id}/preview`)
       .expect(200);
@@ -186,7 +183,7 @@ describe('Variant import preview combined pagination and current database planni
     expect(JSON.stringify(r.body)).not.toContain('private path');
   });
   it('does not change a disabled product or reserved SKU into an insert preview', async () => {
-    db.catalogItem.findMany.mockResolvedValue([
+    db.product.findMany.mockResolvedValue([
       { ...product('UPDATE'), isActive: false },
     ]);
     const r = await request(app.getHttpServer())

@@ -51,7 +51,7 @@ export class ProductAccessService {
     id: string,
     tx: Prisma.TransactionClient = this.prisma,
   ) {
-    const product = await tx.catalogItem.findFirst({
+    const product = await tx.product.findFirst({
       where: { id, businessId },
     });
     if (!product)
@@ -66,7 +66,7 @@ export class ProductAccessService {
   async lock(businessId: string, id: string, tx: Prisma.TransactionClient) {
     // Every new product/variant writer takes this scoped parent lock first.
     const rows = await tx.$queryRaw<{ id: string }[]>`
-      SELECT "id" FROM "CatalogItem" WHERE "id" = ${id}::uuid
+      SELECT "id" FROM "Product" WHERE "id" = ${id}::uuid
       AND "businessId" = ${businessId}::uuid FOR UPDATE`;
     if (!rows.length)
       fail(

@@ -8,5 +8,6 @@ import { VariantsService } from './variants.service';
   imports: [PrismaModule, ProductsModule],
   controllers: [VariantsController],
   providers: [VariantsService],
+  exports: [VariantsService],
 })
 export class VariantsModule {}

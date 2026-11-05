@@ -42,7 +42,7 @@ export class VariantsService {
           const variant = await tx.productVariant.create({
             data: {
               businessId,
-              catalogItemId: productId,
+              productId: productId,
               sku: dto.sku,
               optionValues: options,
               unitPrice:
@@ -64,7 +64,7 @@ export class VariantsService {
     return this.prisma.$transaction(
       async (tx) => {
         const parent = await this.access.product(businessId, productId, tx);
-        const where = { businessId, catalogItemId: productId };
+        const where = { businessId, productId: productId };
         const totalCount = await tx.productVariant.count({ where });
         const variants =
           page.offset >= totalCount
@@ -128,7 +128,7 @@ export class VariantsService {
                 productOptions(parent.options),
               );
           const updated = await tx.productVariant.update({
-            where: { id, businessId, catalogItemId: productId },
+            where: { id, businessId, productId: productId },
             data: {
               ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
               ...(dto.sku !== undefined ? { sku: dto.sku } : {}),
@@ -160,7 +160,7 @@ export class VariantsService {
         await this.access.lock(businessId, productId, tx);
         await this.scoped(tx, businessId, productId, id);
         await tx.productVariant.update({
-          where: { id, businessId, catalogItemId: productId },
+          where: { id, businessId, productId: productId },
           data: { isActive: false },
         });
       });
@@ -176,7 +176,7 @@ export class VariantsService {
     id: string,
   ) {
     const variant = await tx.productVariant.findFirst({
-      where: { id, businessId, catalogItemId: productId },
+      where: { id, businessId, productId: productId },
     });
     if (!variant)
       fail(

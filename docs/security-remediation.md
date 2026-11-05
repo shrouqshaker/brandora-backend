@@ -33,10 +33,17 @@ Tests cover untrusted forwarding headers, canonical mapped addresses, right-edge
 trust boundaries and incorrectly short IPv4-mapped IPv6 trust subnets. No
 vulnerable 2.0.7 helper is intentionally retained.
 
-New SMTP delivery uses Nodemailer 10.2.1 with environment-only credentials, TLS
-validation and bounded timeouts. No provider credentials were read or used to
-send a third-party email. SMTP readiness and live deliverability are separate:
-tests use a controlled mailer; production must configure an approved provider.
+Password reset delivery uses Brevo's HTTPS API with environment-only
+`BREVO_API_KEY`, `AUTH_EMAIL_MODE=brevo` and `BREVO_SENDER_EMAIL`, a Brevo-verified
+sender setting. HTTPS requests have an 8-second timeout; the synchronous endpoint
+keeps an 8.5-second response minimum. Nodemailer is no longer a dependency.
+Recovery is OTP-only: eight ASCII digits, 15-minute expiry, one use and
+email-bound HMAC storage. Shared account/IP limits bound guesses; resend does
+not replenish attempts. Android submits email/otp/newPassword instead of a
+reset-link token. See [the current contract](auth-api.md).
+No provider credentials were read or used to send a third-party email. Provider
+readiness and live deliverability are separate: tests use a controlled mailer;
+production configuration and inbox receipt require separate verification.
 
 The final clean `npm ci` completed with exit code 0. Fresh `npm audit --json`
 and `npm audit --omit=dev --json` both completed with exit code 0 and zero

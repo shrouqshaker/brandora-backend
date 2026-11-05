@@ -9,8 +9,26 @@ import {
   MinLength,
   ValidateIf,
 } from 'class-validator';
+import { ExternalKeyLength } from '../../common/validation/external-key.validation';
 
 export class ProductMetadataDto {
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @ValidateIf((_o, v) => v !== undefined && v !== null)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(60)
+  colorOptionName?: string | null;
+
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() || null : value,
+  )
+  @ValidateIf((_o, v) => v !== undefined && v !== null)
+  @IsString()
+  @ExternalKeyLength()
+  externalKey?: string | null;
+
   @ValidateIf((_o, v) => v !== undefined && v !== null)
   @IsString()
   @MaxLength(5000)

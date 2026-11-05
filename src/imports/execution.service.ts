@@ -33,6 +33,7 @@ type ValidRow = RowValidationResult['validRows'][number];
 export interface ExecutedRow {
   rowNumber: number;
   externalKey: string | null;
+  productId: string;
   catalogItemId: string;
   variantId: string;
 }
@@ -240,7 +241,7 @@ export class ExecutionService {
             const externalKey = group[0].data.externalKey!;
             // Serializes first insertion too, when there is no parent row yet.
             await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${businessId + ':' + externalKey}, 0))::text`;
-            await tx.$queryRaw`SELECT id FROM "CatalogItem" WHERE "businessId"=${businessId}::uuid AND "externalKey"=${externalKey} FOR UPDATE`;
+            await tx.$queryRaw`SELECT id FROM "Product" WHERE "businessId"=${businessId}::uuid AND "externalKey"=${externalKey} FOR UPDATE`;
             const context = await prepareImportContext(
               {
                 summary: {
@@ -273,7 +274,7 @@ export class ExecutionService {
               first.options ?? {},
               existing?.options,
             );
-            const productData: Prisma.CatalogItemUncheckedUpdateInput = {
+            const productData: Prisma.ProductUncheckedUpdateInput = {
               options,
             };
             for (const field of [
@@ -307,18 +308,18 @@ export class ExecutionService {
             }
             const product = existing
               ? Object.keys(productData).length
-                ? await tx.catalogItem.update({
+                ? await tx.product.update({
                     where: { id: existing.id, businessId },
                     data: productData,
                   })
                 : existing
-              : await tx.catalogItem.create({
+              : await tx.product.create({
                   data: {
                     ...productData,
                     businessId,
                     externalKey,
                     name: first.name!,
-                  } as Prisma.CatalogItemUncheckedCreateInput,
+                  } as Prisma.ProductUncheckedCreateInput,
                 });
             const results: {
               action: 'INSERT' | 'UPDATE' | 'UNCHANGED';
@@ -328,9 +329,9 @@ export class ExecutionService {
               const optionValues = selectedOptions(row.data);
               const prior = await tx.productVariant.findUnique({
                 where: {
-                  businessId_catalogItemId_optionValues: {
+                  businessId_productId_optionValues: {
                     businessId,
-                    catalogItemId: product.id,
+                    productId: product.id,
                     optionValues,
                   },
                 },
@@ -350,7 +351,7 @@ export class ExecutionService {
                       where: {
                         id: prior.id,
                         businessId,
-                        catalogItemId: product.id,
+                        productId: product.id,
                       },
                       data: variantData,
                     })
@@ -358,14 +359,14 @@ export class ExecutionService {
                 : await tx.productVariant.create({
                     data: {
                       businessId,
-                      catalogItemId: product.id,
+                      productId: product.id,
                       optionValues,
                       ...variantData,
                     },
                   });
               if (row.data.stockQuantity != null)
                 await this.inventory.setQuantity(
-                  { id: variant.id, businessId, catalogItemId: product.id },
+                  { id: variant.id, businessId, productId: product.id },
                   row.data.stockQuantity,
                   prior
                     ? InventoryMovementType.IMPORT_UPDATE
@@ -383,6 +384,7 @@ export class ExecutionService {
                 row: {
                   rowNumber: row.rowNumber,
                   externalKey,
+                  productId: product.id,
                   catalogItemId: product.id,
                   variantId: variant.id,
                 },

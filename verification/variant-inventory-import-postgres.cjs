@@ -14,6 +14,29 @@ const database =
 const local = { host: '127.0.0.1', port: 55439, user: 'postgres' };
 const url = `postgresql://postgres@127.0.0.1:55439/${database}`;
 const admin = new Client({ ...local, database: 'postgres' });
+// Real PostgreSQL and application HTTP; only Cloudinary is controlled in-memory.
+const cloud = {
+  failUpload: false,
+  failDelete: false,
+  uploads: 0,
+  deletions: 0,
+  assertReady() {},
+  async upload(publicId) {
+    this.uploads++;
+    if (this.failUpload) throw new Error('Controlled provider failure');
+    return {
+      secureUrl: `https://res.cloudinary.com/test-cloud/image/upload/${publicId}.jpg`,
+      width: 40,
+      height: 30,
+      bytes: 100,
+      format: 'jpg',
+    };
+  },
+  async destroy() {
+    this.deletions++;
+    if (this.failDelete) throw new Error('Controlled deletion failure');
+  },
+};
 let sql,
   app,
   db,
@@ -56,7 +79,7 @@ async function call(method, route, data, status = 200, credential = token) {
 }
 const inventoryPath = (p = product.id, v = variant.id) =>
   `/businesses/${businessId}/products/${p}/variants/${v}/inventory`;
-const scope = () => ({ businessId, catalogItemId: product.id, id: variant.id });
+const scope = () => ({ businessId, productId: product.id, id: variant.id });
 const transaction = (fn) => db.$transaction(fn, { timeout: 20000 });
 async function workbook(
   rows,
@@ -246,7 +269,7 @@ before(
           'SELECT count(*)::int AS n FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL',
         )
       ).rows[0].n,
-      10,
+      12,
     );
     Object.assign(process.env, {
       DATABASE_URL: url,
@@ -266,11 +289,17 @@ before(
     const { PrismaService } = require('../dist/prisma/prisma.service');
     const { InventoryService } = require('../dist/inventory/inventory.service');
     const {
+      CloudinaryService,
+    } = require('../dist/products/images/cloudinary.service');
+    const {
       HttpExceptionFilter,
     } = require('../dist/common/errors/http-exception.filter');
     const module = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(CloudinaryService)
+      .useValue(cloud)
+      .compile();
     app = module.createNestApplication({ logger: false });
     app.useGlobalPipes(
       new ValidationPipe({
@@ -336,7 +365,7 @@ test('default variant, one stock source, audited tracking enable/disable and no-
   assert.equal(m.items[0].variantId, variant.id);
   assert.ok(
     !Object.hasOwn(
-      await db.catalogItem.findUniqueOrThrow({ where: { id: product.id } }),
+      await db.product.findUniqueOrThrow({ where: { id: product.id } }),
       'stockQuantity',
     ),
   );
@@ -523,7 +552,7 @@ test('order-line references cannot deduct a second variant in the same business'
   );
   const secondScope = {
     businessId,
-    catalogItemId: second.id,
+    productId: second.id,
     id: second.variants[0].id,
   };
   await inventory.setQuantity(secondScope, 10);
@@ -545,7 +574,7 @@ test('order-line references cannot deduct a second variant in the same business'
     db.inventoryMovement.create({
       data: {
         businessId,
-        catalogItemId: second.id,
+        productId: second.id,
         variantId: secondScope.id,
         type: 'ORDER_APPROVED',
         referenceType: 'ORDER_LINE',
@@ -584,7 +613,7 @@ test('complete workbook workflow creates grouped variants, category and independ
   );
   const r = await call('post', `/imports/${id}/execute`, {});
   assert.equal(r.summary.insertedCount, 2);
-  const p = await db.catalogItem.findUniqueOrThrow({
+  const p = await db.product.findUniqueOrThrow({
     where: { businessId_externalKey: { businessId, externalKey: 'SHIRT' } },
     include: { variants: true, categoryRecord: true },
   });
@@ -595,13 +624,113 @@ test('complete workbook workflow creates grouped variants, category and independ
   );
   assert.equal(p.variants.length, 2);
   assert.equal(
-    await db.inventoryMovement.count({ where: { catalogItemId: p.id } }),
+    await db.inventoryMovement.count({ where: { productId: p.id } }),
     2,
   );
   await call('post', `/imports/${id}/execute`, {}, 409);
   await call('get', `/imports/${id}`, undefined, 200);
   await call('get', `/businesses/${businessId}/imports`, undefined, 200);
 });
+test('manual Products can acquire an externalKey and be updated by Excel Import without duplicate products or variants', async () => {
+  const base = `/businesses/${businessId}/products`;
+  const manual = await call(
+    'post',
+    base,
+    { name: 'Manual before import', basePrice: '5.00' },
+    201,
+  );
+  assert.equal(manual.externalKey, null);
+  assert.equal(manual.variants.length, 1);
+  const defaultVariantId = manual.variants[0].id;
+  const key = 'MANUAL-IMPORT-001';
+  const assigned = await call('patch', `${base}/${manual.id}`, {
+    externalKey: `  ${key}  `,
+  });
+  assert.equal(assigned.externalKey, key);
+
+  const conflict = await call(
+    'post',
+    base,
+    { name: 'Duplicate', externalKey: key },
+    409,
+  );
+  assert.equal(conflict.code, 'PRODUCT_EXTERNAL_KEY_CONFLICT');
+  const other = await call('post', base, { name: 'Other manual product' }, 201);
+  const conflictPatch = await call(
+    'patch',
+    `${base}/${other.id}`,
+    { externalKey: key, name: 'Must not change' },
+    409,
+  );
+  assert.equal(conflictPatch.code, 'PRODUCT_EXTERNAL_KEY_CONFLICT');
+  assert.equal(
+    (await call('get', `${base}/${other.id}`)).name,
+    'Other manual product',
+  );
+  const secondBusiness = await call(
+    'post',
+    '/businesses',
+    { name: 'Other import-key tenant' },
+    201,
+  );
+  const crossTenant = await call(
+    'post',
+    `/businesses/${secondBusiness.id}/products`,
+    { name: 'Same key permitted', externalKey: key },
+    201,
+  );
+  assert.equal(crossTenant.externalKey, key);
+
+  const countBefore = await db.product.count({ where: { businessId } });
+  for (const [name, price, quantity] of [
+    ['Imported manual', '9.00', 6],
+    ['Imported manual updated', '11.00', 9],
+  ]) {
+    const job = await workbook([
+      [key, name, null, 'Clothes', price, null, quantity],
+    ]);
+    const validation = await call('post', `/imports/${job}/validate`, {}, 201);
+    assert.equal(validation.summary.validRows, 1);
+    const preview = await call('get', `/imports/${job}/preview`);
+    assert.equal(preview.summary.willInsert, 0);
+    assert.equal(preview.summary.willUpdate, 1);
+    const executed = await call('post', `/imports/${job}/execute`, {});
+    assert.equal(executed.summary.insertedCount, 0);
+    assert.equal(executed.summary.updatedCount, 1);
+    const product = await call('get', `${base}/${manual.id}`);
+    assert.equal(product.name, name);
+    assert.equal(product.basePrice, price);
+    assert.equal(product.externalKey, key);
+    assert.equal(product.variants.length, 1);
+    assert.equal(product.variants[0].id, defaultVariantId);
+    assert.equal(product.variants[0].stockQuantity, quantity);
+    assert.equal(product.variants[0].trackInventory, true);
+    assert.equal(
+      await db.product.count({ where: { businessId } }),
+      countBefore,
+    );
+    assert.equal(
+      await db.product.count({ where: { businessId, externalKey: key } }),
+      1,
+    );
+    assert.equal(
+      await db.productVariant.count({
+        where: { businessId, productId: manual.id },
+      }),
+      1,
+    );
+  }
+  await call('delete', `${base}/${manual.id}`, undefined, 204);
+  const inactiveConflict = await call(
+    'patch',
+    `${base}/${other.id}`,
+    { externalKey: key },
+    409,
+  );
+  assert.equal(inactiveConflict.code, 'PRODUCT_EXTERNAL_KEY_CONFLICT');
+  await call('patch', `${base}/${manual.id}`, { isActive: true });
+});
+
 test('blank stock preserves quantities; repeated new jobs update stable identities without duplicates', async () => {
   const before = await db.productVariant.findFirstOrThrow({
     where: { businessId, sku: 'S-RED' },
@@ -633,7 +762,7 @@ test('blank stock preserves quantities; repeated new jobs update stable identiti
   assert.equal(await db.category.count({ where: { businessId } }), 1);
   assert.equal(
     await db.productVariant.count({
-      where: { catalogItemId: before.catalogItemId },
+      where: { productId: before.productId },
     }),
     2,
   );
@@ -704,7 +833,7 @@ test('group transaction rolls back after audit failure while independent product
     assert.equal(r.summary.failedCount, 2);
     assert.equal(r.summary.insertedCount, 1);
     assert.equal(
-      await db.catalogItem.count({
+      await db.product.count({
         where: { businessId, externalKey: 'FAIL' },
       }),
       0,
@@ -737,7 +866,7 @@ test('competing import jobs cannot duplicate product or variant identities', asy
   );
   assert.ok(results.some((r) => r.status === 'COMPLETED'));
   assert.equal(
-    await db.catalogItem.count({ where: { businessId, externalKey: 'RACE' } }),
+    await db.product.count({ where: { businessId, externalKey: 'RACE' } }),
     1,
   );
   assert.equal(
@@ -762,7 +891,7 @@ test('database tenant FK, stock CHECK and audit delta CHECK reject invalid write
     db.inventoryMovement.create({
       data: {
         businessId: other.id,
-        catalogItemId: product.id,
+        productId: product.id,
         variantId: variant.id,
         type: 'MANUAL_ADJUSTMENT',
         trackingBefore: false,
@@ -789,7 +918,7 @@ test('database tenant FK, stock CHECK and audit delta CHECK reject invalid write
     db.inventoryMovement.create({
       data: {
         businessId,
-        catalogItemId: product.id,
+        productId: product.id,
         variantId: variant.id,
         type: 'MANUAL_ADJUSTMENT',
         trackingBefore: true,
@@ -856,13 +985,13 @@ test('category relation repair matches preview and unchanged re-import preserves
   ]);
   await call('post', '/imports/' + id + '/validate', {}, 201);
   await call('post', '/imports/' + id + '/execute', {});
-  let current = await db.catalogItem.findUniqueOrThrow({
+  let current = await db.product.findUniqueOrThrow({
     where: {
       businessId_externalKey: { businessId, externalKey: 'CATEGORY-REPAIR' },
     },
     include: { variants: true },
   });
-  await db.catalogItem.update({
+  await db.product.update({
     where: { id: current.id },
     data: { categoryId: wrong.id },
   });
@@ -888,7 +1017,7 @@ test('category relation repair matches preview and unchanged re-import preserves
       .updatedCount,
     1,
   );
-  current = await db.catalogItem.findUniqueOrThrow({
+  current = await db.product.findUniqueOrThrow({
     where: { id: current.id },
     include: { variants: true },
   });
@@ -910,7 +1039,7 @@ test('category relation repair matches preview and unchanged re-import preserves
       .unchangedCount,
     1,
   );
-  const after = await db.catalogItem.findUniqueOrThrow({
+  const after = await db.product.findUniqueOrThrow({
     where: { id: current.id },
     include: { variants: true },
   });
@@ -921,7 +1050,7 @@ test('category relation repair matches preview and unchanged re-import preserves
   );
 });
 test('oversized merged attributes fail validation and preview without product writes', async () => {
-  const original = await db.catalogItem.create({
+  const original = await db.product.create({
     data: {
       businessId,
       externalKey: 'MERGED-SIZE',
@@ -963,19 +1092,39 @@ test('oversized merged attributes fail validation and preview without product wr
   const executed = await call('post', '/imports/' + id + '/execute', {});
   assert.equal(executed.updated.length, 0);
   assert.deepEqual(
-    (await db.catalogItem.findUniqueOrThrow({ where: { id: original.id } }))
+    (await db.product.findUniqueOrThrow({ where: { id: original.id } }))
       .attributes,
     original.attributes,
   );
 });
 test('valid mapped attributes merge with retained attributes and execute as previewed', async () => {
-  const id = await workbook([['MERGED-SIZE', 'Merged size', null, null, null, null, null, 'safe note']], false, false, true);
-  assert.equal((await call('post', '/imports/'+id+'/validate', {}, 201)).summary.validRows, 1);
-  const preview = await call('get', '/imports/'+id+'/preview');
-  assert.equal(preview.updates[0].changes.attributes.to.supplier_note, 'safe note');
+  const id = await workbook(
+    [['MERGED-SIZE', 'Merged size', null, null, null, null, null, 'safe note']],
+    false,
+    false,
+    true,
+  );
+  assert.equal(
+    (await call('post', '/imports/' + id + '/validate', {}, 201)).summary
+      .validRows,
+    1,
+  );
+  const preview = await call('get', '/imports/' + id + '/preview');
+  assert.equal(
+    preview.updates[0].changes.attributes.to.supplier_note,
+    'safe note',
+  );
   assert.equal(preview.updates[0].changes.attributes.to.retained.length, 8500);
-  assert.equal((await call('post', '/imports/'+id+'/execute', {})).summary.updatedCount, 1);
-  const product = await db.catalogItem.findUniqueOrThrow({where: {businessId_externalKey: {businessId, externalKey: 'MERGED-SIZE'}}});
+  assert.equal(
+    (await call('post', '/imports/' + id + '/execute', {})).summary
+      .updatedCount,
+    1,
+  );
+  const product = await db.product.findUniqueOrThrow({
+    where: {
+      businessId_externalKey: { businessId, externalKey: 'MERGED-SIZE' },
+    },
+  });
   assert.equal(product.attributes.supplier_note, 'safe note');
   assert.equal(product.attributes.retained.length, 8500);
 });
@@ -1027,13 +1176,211 @@ test('every import route rejects anonymous and foreign business owners by import
     await call(method, route, undefined, 404, stranger);
   }
 });
+test('product images: Main/Gallery, concurrency, ownership and image-preserving import', async () => {
+  const products = '/businesses/' + businessId + '/products';
+  const p = await call(
+    'post',
+    products,
+    {
+      name: 'Image workflow',
+      externalKey: 'IMAGE-WORKFLOW',
+      basePrice: '20.00',
+      options: { color: ['Black', 'White'], size: ['M', 'L'] },
+      colorOptionName: 'color',
+    },
+    201,
+  );
+  const images = products + '/' + p.id + '/images',
+    bytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0]);
+  const upload = async (credential = token, expected = 201) => {
+    let req = http.post(images);
+    if (credential) req = req.set('Authorization', 'Bearer ' + credential);
+    const response = await req.attach('file', bytes, {
+      filename: 'image.jpg',
+      contentType: 'image/jpeg',
+    });
+    assert.equal(response.status, expected, JSON.stringify(response.body));
+    httpChecks++;
+    return response.body;
+  };
+  await upload(null, 401);
+  await upload(stranger, 404);
+  await call('get', images, undefined, 401, null);
+  await call('get', images, undefined, 404, stranger);
+  const variant = await call(
+    'post',
+    products + '/' + p.id + '/variants',
+    { optionValues: { color: 'Black', size: 'M' }, unitPrice: '27.00' },
+    201,
+  );
+  const beforeVariant = await call(
+    'get',
+    products + '/' + p.id + '/variants/' + variant.id,
+  );
+  const first = await upload(),
+    second = await upload();
+  assert.equal(first.isMain, true);
+  assert.equal(second.isMain, false);
+  const batch = await http
+    .post(images)
+    .set('Authorization', 'Bearer ' + token)
+    .attach('files', bytes, {
+      filename: 'three.jpg',
+      contentType: 'image/jpeg',
+    })
+    .attach('files', bytes, {
+      filename: 'four.jpg',
+      contentType: 'image/jpeg',
+    });
+  assert.equal(batch.status, 201);
+  assert.equal(batch.body.items.length, 2);
+  httpChecks++;
+  const raced = await Promise.all(
+    Array.from({ length: 3 }, () =>
+      http
+        .post(images)
+        .set('Authorization', 'Bearer ' + token)
+        .attach('file', bytes, {
+          filename: 'race.jpg',
+          contentType: 'image/jpeg',
+        }),
+    ),
+  );
+  assert.deepEqual(raced.map((r) => r.status).sort(), [201, 400, 400]);
+  httpChecks += 3;
+  assert.equal((await call('get', images)).items.length, 5);
+  const oversized = await http
+    .post(images)
+    .set('Authorization', 'Bearer ' + token)
+    .attach('files', bytes, { filename: 'six.jpg', contentType: 'image/jpeg' })
+    .attach('files', bytes, {
+      filename: 'seven.jpg',
+      contentType: 'image/jpeg',
+    });
+  assert.equal(oversized.status, 400);
+  httpChecks++;
+  const changed = await call('patch', images + '/' + second.id, {
+    isMain: true,
+  });
+  assert.equal(changed.items[0].id, second.id);
+  const order = changed.items.map((i) => i.id).reverse();
+  await call('patch', images, { imageIds: order });
+  await call('delete', images + '/' + order[0]);
+  assert.equal((await call('get', images)).items[0].id, order[1]);
+  assert.deepEqual(
+    await call('get', products + '/' + p.id + '/variants/' + variant.id),
+    beforeVariant,
+  );
+  await call(
+    'patch',
+    images + '/' + second.id,
+    { isMain: true },
+    404,
+    stranger,
+  );
+  await assert.rejects(
+    db.productImage.create({
+      data: {
+        businessId,
+        productId: p.id,
+        publicId: 'duplicate-' + randomUUID(),
+        status: 'ACTIVE',
+        position: 0,
+        secureUrl: 'https://res.cloudinary.com/test/image/upload/test.jpg',
+        width: 1,
+        height: 1,
+        bytes: 4,
+        format: 'jpg',
+      },
+    }),
+  );
+  await assert.rejects(
+    db.productImage.create({
+      data: {
+        businessId,
+        productId: p.id,
+        publicId: 'invalid-position-' + randomUUID(),
+        position: 5,
+      },
+    }),
+  );
+  const snapshots = await db.productImage.findMany({
+    where: { productId: p.id },
+    orderBy: { id: 'asc' },
+  });
+  for (const [color, size, qty] of [
+    ['Black', 'M', 7],
+    ['Blue', 'L', 4],
+    ['Black', 'M', null],
+  ]) {
+    const job = await workbook(
+      [
+        [
+          'IMAGE-WORKFLOW',
+          'Image workflow',
+          'IMG-' + color + '-' + size,
+          null,
+          '25.00',
+          null,
+          qty,
+          color,
+          size,
+        ],
+      ],
+      true,
+    );
+    assert.equal(
+      (await call('post', `/imports/${job}/validate`, {}, 201)).summary
+        .validRows,
+      1,
+    );
+    assert.equal(
+      (await call('post', `/imports/${job}/execute`, {})).summary.failedCount,
+      0,
+    );
+    assert.deepEqual(
+      await db.productImage.findMany({
+        where: { productId: p.id },
+        orderBy: { id: 'asc' },
+      }),
+      snapshots,
+    );
+  }
+  const imported = await call('get', `${products}/${p.id}`);
+  assert.deepEqual(imported.options.color, ['Black', 'White', 'Blue']);
+  assert.equal(imported.colorOptionName, 'color');
+  assert.equal(
+    imported.variants.find((v) => v.optionValues.color === 'Black')
+      .stockQuantity,
+    7,
+  );
+
+  cloud.failUpload = true;
+  await upload(token, 500);
+  cloud.failUpload = false;
+  assert.equal((await call('get', images)).items.length, 4);
+  cloud.failDelete = true;
+  const target = (await call('get', images)).items[0];
+  assert.equal(
+    (await call('delete', images + '/' + target.id)).cleanupPending,
+    true,
+  );
+  const remaining = (await call('get', images)).items;
+  assert.equal(remaining[0].isMain, true);
+  cloud.failDelete = false;
+  await call('delete', images + '/' + target.id);
+  for (const image of remaining) await call('delete', images + '/' + image.id);
+  assert.deepEqual((await call('get', images)).items, []);
+  assert.equal((await upload()).isMain, true);
+});
+
 test('migration status, SQL-only constraints, Prisma drift and paginated history', async () => {
   const history = (
     await sql.query(
       'SELECT migration_name, checksum, finished_at, rolled_back_at FROM _prisma_migrations',
     )
   ).rows;
-  assert.equal(history.length, 10);
+  assert.equal(history.length, 13);
   for (const entry of history) {
     assert.ok(entry.finished_at);
     assert.equal(entry.rolled_back_at, null);

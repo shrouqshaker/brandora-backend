@@ -42,7 +42,7 @@ describe('Excel mapping HTTP API (real workbook/storage, mocked database)', () =
   };
   const prisma = {
     importJob: { findUnique: jest.fn(), updateMany: jest.fn() },
-    catalogItem: {
+    product: {
       create: jest.fn(),
       createMany: jest.fn(),
       update: jest.fn(),
@@ -121,10 +121,10 @@ describe('Excel mapping HTTP API (real workbook/storage, mocked database)', () =
 
   afterEach(async () => {
     jest.restoreAllMocks();
-    expect(prisma.catalogItem.create).not.toHaveBeenCalled();
-    expect(prisma.catalogItem.createMany).not.toHaveBeenCalled();
-    expect(prisma.catalogItem.update).not.toHaveBeenCalled();
-    expect(prisma.catalogItem.updateMany).not.toHaveBeenCalled();
+    expect(prisma.product.create).not.toHaveBeenCalled();
+    expect(prisma.product.createMany).not.toHaveBeenCalled();
+    expect(prisma.product.update).not.toHaveBeenCalled();
+    expect(prisma.product.updateMany).not.toHaveBeenCalled();
     // Invalid mappings must not delete the previously retained upload.
     expect(await readdir(directory)).toContain(fileKey);
     for (const key of await readdir(directory))

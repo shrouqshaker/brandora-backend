@@ -1,13 +1,9 @@
-import {
-  CatalogItem,
-  ProductVariant,
-  Prisma,
-} from '../../generated/prisma/client';
+import { Product, ProductVariant, Prisma } from '../../generated/prisma/client';
 import { ExcelValue } from '../adapters/excel.adapter';
 import { NormalizedRow } from '../validation/row.types';
 
-export type ExistingCatalogItem = Pick<
-  CatalogItem,
+export type ExistingProduct = Pick<
+  Product,
   | 'id'
   | 'businessId'
   | 'externalKey'
@@ -37,12 +33,14 @@ export interface PlannedInsert extends PlannedRow {
 
 export interface PlannedUpdate extends PlannedRow {
   action: 'UPDATE';
+  productId: string;
   catalogItemId: string;
   changes: Record<string, { from: Prisma.JsonValue; to: Prisma.JsonValue }>;
 }
 
 export interface PlannedUnchanged extends PlannedRow {
   action: 'UNCHANGED';
+  productId: string;
   catalogItemId: string;
 }
 

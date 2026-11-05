@@ -26,7 +26,7 @@ describe('Excel analysis HTTP API (real ExcelJS, mocked database)', () => {
   const prisma = {
     business: { findUnique: jest.fn() },
     importJob: { create: jest.fn() },
-    catalogItem: {
+    product: {
       create: jest.fn(),
       createMany: jest.fn(),
       update: jest.fn(),
@@ -90,9 +90,9 @@ describe('Excel analysis HTTP API (real ExcelJS, mocked database)', () => {
     jest.restoreAllMocks();
     for (const key of await readdir(storageDirectory))
       await storage.delete(key);
-    expect(prisma.catalogItem.create).not.toHaveBeenCalled();
-    expect(prisma.catalogItem.createMany).not.toHaveBeenCalled();
-    expect(prisma.catalogItem.update).not.toHaveBeenCalled();
+    expect(prisma.product.create).not.toHaveBeenCalled();
+    expect(prisma.product.createMany).not.toHaveBeenCalled();
+    expect(prisma.product.update).not.toHaveBeenCalled();
   });
 
   it('detects a header after a title/blank row, returns five samples, and records a job', async () => {

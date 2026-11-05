@@ -62,7 +62,8 @@ describe('Public Android App Links and existing password-reset POST', () => {
   });
   it('preserves POST reset-password DTO forwarding and 204 without redirects', async () => {
     const dto = {
-      token: '00000000-0000-4000-8000-000000000000.' + 'a'.repeat(43),
+      email: 'owner@example.invalid',
+      otp: '01234567',
       newPassword: 'TestPassword123!',
     };
     const response = await request(app.getHttpServer())

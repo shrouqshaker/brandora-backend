@@ -22,11 +22,14 @@ code plus the exact option combination (JSON key order does not matter). An
 existing SKU cannot move to another product or combination. A mapped nonblank
 unreserved SKU can rename the same combination; omission/blank preserves its SKU.
 Names alone are never used to find existing products.
-For a Product created without an externalKey, assign its unique grouping code
-through the existing scoped `PATCH /catalog-items/:id` metadata API before an
-import update. Otherwise the new code inserts a new product; UUIDs and names
-are not fallback matches. Format product-code and SKU cells as Excel text to
-preserve leading zeroes.
+The [Products API](products-api.md) is the only public metadata CRUD API.
+Assign a manually created Product its grouping code through POST or
+`PATCH /businesses/:businessId/products/:productId` with `externalKey` before
+importing that code. The field is trimmed, case-sensitive, max 200 characters and
+unique per business; a duplicate code returns `409 PRODUCT_EXTERNAL_KEY_CONFLICT`.
+Without a matching externalKey, a new code inserts a new product; UUIDs and names
+are not fallback matches. To update an imported product, reuse its existing code. Format
+product-code and SKU cells as Excel text to preserve leading zeroes.
 
 For selected options, map a column as `VARIANT_ATTRIBUTE` with the option name as
 target. This now creates real Product.options and Variant.optionValues, rather
@@ -140,13 +143,13 @@ skippedRows } }`. Validates the entire workbook and reads current scoped
 6. `GET /imports/:importId/preview?limit=50&offset=0` (200), READY only:
    `{ importId, status, summary, pagination, inserts, updates, unchanged,
 invalidRows }`. Summary adds willInsert, willUpdate, unchanged. Actions count
-   **variant rows**, not distinct products. Existing actions include catalogItemId
+   **variant rows**, not distinct products. Existing actions include productId and its retained catalogItemId alias
    and variantId; UPDATE changes describe product and variant differences.
    Rebuilds the full workbook, checks current DB conflicts and makes no writes.
    Preview is advisory: execution repeats checks under locks.
 7. `POST /imports/:importId/execute` (200), READY only:
    `{ importId, status, summary, inserted, updated, unchanged, failedRows,
-invalidRows }`. Executed rows include `{ rowNumber, externalKey, catalogItemId,
+invalidRows }`. Executed rows include `{ rowNumber, externalKey, productId, catalogItemId,
 variantId }`. Summary adds insertedCount, updatedCount, failedCount,
    unchangedCount. Failed rows include rowNumber/code/message. These arrays are
    the complete execution result; they are not paginated.

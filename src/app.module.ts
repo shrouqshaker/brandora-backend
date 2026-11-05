@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { CatalogModule } from './catalog/catalog.module';
 import { ImportsModule } from './imports/imports.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { BusinessesModule } from './businesses/businesses.module';
@@ -27,7 +26,6 @@ import { AppLinksController } from './app-links.controller';
         return { ...env, PORT: port };
       },
     }),
-    CatalogModule,
     ImportsModule,
     InventoryModule,
     BusinessesModule,

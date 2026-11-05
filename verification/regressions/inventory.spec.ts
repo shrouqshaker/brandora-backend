@@ -5,7 +5,7 @@ import { Prisma } from '../../src/generated/prisma/client';
 describe('Variant inventory transaction boundaries', () => {
   const scope = {
     businessId: 'business',
-    catalogItemId: 'product',
+    productId: 'product',
     id: 'variant',
   };
   let service: InventoryService, tx: any, prisma: any;
@@ -15,24 +15,20 @@ describe('Variant inventory transaction boundaries', () => {
         .fn()
         .mockResolvedValue([{ id: 'product', isActive: true }]),
       productVariant: {
-        findFirst: jest
-          .fn()
-          .mockResolvedValue({
-            stockQuantity: 10,
-            trackInventory: true,
-            isActive: true,
-          }),
+        findFirst: jest.fn().mockResolvedValue({
+          stockQuantity: 10,
+          trackInventory: true,
+          isActive: true,
+        }),
         update: jest.fn(),
       },
       inventoryMovement: {
         findFirst: jest.fn().mockResolvedValue(null),
         findMany: jest.fn().mockResolvedValue([]),
-        create: jest
-          .fn()
-          .mockImplementation(async ({ data }) => ({
-            ...data,
-            id: 'movement',
-          })),
+        create: jest.fn().mockImplementation(async ({ data }) => ({
+          ...data,
+          id: 'movement',
+        })),
       },
     };
     prisma = {
@@ -56,7 +52,7 @@ describe('Variant inventory transaction boundaries', () => {
     });
     expect(tx.inventoryMovement.create.mock.calls[0][0].data).toMatchObject({
       businessId: 'business',
-      catalogItemId: 'product',
+      productId: 'product',
       variantId: 'variant',
       trackingBefore: true,
       trackingAfter: true,

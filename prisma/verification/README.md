@@ -1,5 +1,11 @@
 # Task 1: schema-only product foundation
 
+Historical foundation-migration notes: the SQL and scripts below target the
+pre-variant-inventory physical schema. They are not current release verification
+or permission to clean production. Current Product/ProductImage schema and
+data-preserving upgrade checks are documented in
+[the Product database rollout](../../docs/product-domain-database-rollout.md).
+
 Migration: `20261027000000_add_product_variants_categories`.
 Forward migration: `20261027010000_unique_variant_option_values`.
 
