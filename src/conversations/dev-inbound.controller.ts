@@ -13,6 +13,7 @@ import { AppHttpException } from '../common/errors/app-http.exception';
 import { ErrorCode } from '../common/errors/error-code';
 import { ConversationsService } from './conversations.service';
 import { InboundMessageDto } from './dto/inbound-message.dto';
+import { AuthScope } from '../auth/auth-policy';
 
 /**
  * TEMPORARY, development only. Simulates "a customer sent a WhatsApp message"
@@ -21,6 +22,7 @@ import { InboundMessageDto } from './dto/inbound-message.dto';
  * Delete this file (and its line in conversations.module.ts) with the webhook work.
  */
 @Controller('businesses/:businessId/dev')
+@AuthScope('params')
 export class DevInboundController {
   constructor(
     private readonly conversations: ConversationsService,

@@ -1,9 +1,11 @@
 # Customers, Conversations and Messages
 
 Persistent chat history for WhatsApp customers. Every endpoint is scoped by
-`businessId` in the path, and a resource id from another business answers 404
-(an id is never looked up on its own). There is currently no authentication:
-business scoping is a database filter, not an authorization check.
+`businessId` in the path and needs `Authorization: Bearer <accessToken>` from an
+active OWNER of that business (`@AuthScope('params')`). No token answers 401
+`UNAUTHORIZED`; a token whose user is not an owner of the business answers 404,
+the same as a resource id from another business (an id is never looked up on
+its own).
 
 Phone numbers are stored as digits only, in international format
 (`201000000001`, the same shape as WhatsApp's `wa_id`). `+20 100 000 0001` and

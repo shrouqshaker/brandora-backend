@@ -2,8 +2,10 @@ import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { PaginationQueryDto } from '../common/pagination/pagination-query.dto';
 import { ConversationsService } from './conversations.service';
 import { ListConversationsDto } from './dto/list-conversations.dto';
+import { AuthScope } from '../auth/auth-policy';
 
 @Controller('businesses/:businessId/conversations')
+@AuthScope('params')
 export class ConversationsController {
   constructor(private readonly conversations: ConversationsService) {}
 
