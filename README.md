@@ -1,7 +1,8 @@
 # Brandora Backend
 
 NestJS API for owner-managed businesses, products, variants, inventory and Excel
-imports. The Backend owns authorization and data.
+imports. The Backend owns authorization and data; the FastAPI AI service lives
+in a separate repository and is deployed independently by Malak.
 
 ## Stack
 
@@ -43,14 +44,16 @@ npm test
 ```
 
 See [verification commands](verification/README.md) for isolated database tests
-and [domain verification history](docs/product-domain-verification.md) for their scope and limits.
+and [recorded results](docs/local-verification.md) for their scope and limits.
 
-## Release scope
+## AI integration status
 
-This release contains Product/Variant/Inventory/Excel Import, Cloudinary and
-OTP-only Brevo recovery. AI integration is excluded; no AI routes or providers
-are included. Orders and permanent Excel storage remain deferred.
-See [image setup](docs/product-images.md).
+The local loopback harness supports independent synthetic messages against real
+local product data. Production integration remains disabled until authorized
+conversation persistence and end-to-end acceptance are ready. Live Groq and
+production email delivery require separate verification. Product images use
+Cloudinary with server-side credentials; see [image setup](docs/product-images.md).
+Image recognition, Orders and permanent Excel file storage remain deferred.
 
 ## Documentation
 
@@ -58,5 +61,7 @@ See [image setup](docs/product-images.md).
 - [Business API](docs/business-api.md)
 - [Products and variants](docs/products-api.md)
 - [Inventory](docs/inventory-api.md) / [Excel imports](docs/imports-api.md)
+- [AI security and contracts](docs/ai-integration.md)
+- [Local AI / Postman testing](docs/ai-local-testing.md)
 - [Railway proxy security](docs/railway-proxy-security.md)
 - [Shared error contract](docs/api-errors.md)

@@ -183,9 +183,9 @@ atomicity; no obsolete tests are moved to archives or excluded by configuration.
 Historical verification snapshot (before removal of the legacy Catalog API):
 current product CRUD is documented in [Products API](products-api.md). The
 retired Catalog paths in the historical file list below are no longer runtime
-modules or executable tests. Current non-AI release inventory is 49 routes: 42
-owner-JWT-protected and seven anonymous routes. Catalog API removal alone
-requires no schema change;
+modules or executable tests. Current controller inventory is 51 routes: 43
+owner-JWT-protected, one service-guarded internal AI route and seven anonymous
+routes. Catalog API removal and the AI adapter alone require no schema change;
 the later physical rename and ProductImage feature do require the new migrations.
 
 Historical local verification (2026-10-29; not the current release counts): Prisma validate and generation/build passed;

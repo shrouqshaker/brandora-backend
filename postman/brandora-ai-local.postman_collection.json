@@ -1,0 +1,579 @@
+{
+  "info": {
+    "name": "Brandora - Local AI / Real Backend (No Conversations)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Loopback-only runner. Start isolated PostgreSQL, dev/ai-local.cjs and standalone app.local first. No owner JWTs, service credentials or keys belong in this collection. See docs/ai-local-testing.md."
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:3099",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1 - Product availability",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Brandora-Local-Test",
+            "value": "true"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": \"عندكوا تيشيرت أسود؟\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/dev/ai/respond",
+        "description": "Independent synthetic message. No credentials, persisted customer or saved history."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected status\", function () { pm.response.to.have.status(200); });",
+              "const body = pm.response.json();",
+              "pm.test(\"Exact read-only E0-3 contract\", function () {",
+              "  pm.expect(Object.keys(body).sort()).to.eql([\"intent\",\"orderCandidate\",\"reply\",\"requiresReview\"]);",
+              "  pm.expect(body.orderCandidate).to.eql(null);",
+              "});",
+              "pm.test(\"Synthetic local mode is explicit\", function () {",
+              "  pm.expect(pm.response.headers.get(\"X-Brandora-Test-Mode\")).to.eql(\"synthetic-no-history\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2 - Variant price override (fixture Black L = 275.00)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Brandora-Local-Test",
+            "value": "true"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": \"بكام التيشيرت الأسود مقاس L؟\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/dev/ai/respond",
+        "description": "Independent synthetic message. No credentials, persisted customer or saved history."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected status\", function () { pm.response.to.have.status(200); });",
+              "const body = pm.response.json();",
+              "pm.test(\"Exact read-only E0-3 contract\", function () {",
+              "  pm.expect(Object.keys(body).sort()).to.eql([\"intent\",\"orderCandidate\",\"reply\",\"requiresReview\"]);",
+              "  pm.expect(body.orderCandidate).to.eql(null);",
+              "});",
+              "pm.test(\"Synthetic local mode is explicit\", function () {",
+              "  pm.expect(pm.response.headers.get(\"X-Brandora-Test-Mode\")).to.eql(\"synthetic-no-history\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3 - White L selection",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Brandora-Local-Test",
+            "value": "true"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": \"هل التيشيرت الأبيض مقاس L متوفر؟\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/dev/ai/respond",
+        "description": "Independent synthetic message. No credentials, persisted customer or saved history."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected status\", function () { pm.response.to.have.status(200); });",
+              "const body = pm.response.json();",
+              "pm.test(\"Exact read-only E0-3 contract\", function () {",
+              "  pm.expect(Object.keys(body).sort()).to.eql([\"intent\",\"orderCandidate\",\"reply\",\"requiresReview\"]);",
+              "  pm.expect(body.orderCandidate).to.eql(null);",
+              "});",
+              "pm.test(\"Synthetic local mode is explicit\", function () {",
+              "  pm.expect(pm.response.headers.get(\"X-Brandora-Test-Mode\")).to.eql(\"synthetic-no-history\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4 - Available colors",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Brandora-Local-Test",
+            "value": "true"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": \"إيه الألوان المتاحة للتيشيرت؟\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/dev/ai/respond",
+        "description": "Independent synthetic message. No credentials, persisted customer or saved history."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected status\", function () { pm.response.to.have.status(200); });",
+              "const body = pm.response.json();",
+              "pm.test(\"Exact read-only E0-3 contract\", function () {",
+              "  pm.expect(Object.keys(body).sort()).to.eql([\"intent\",\"orderCandidate\",\"reply\",\"requiresReview\"]);",
+              "  pm.expect(body.orderCandidate).to.eql(null);",
+              "});",
+              "pm.test(\"Synthetic local mode is explicit\", function () {",
+              "  pm.expect(pm.response.headers.get(\"X-Brandora-Test-Mode\")).to.eql(\"synthetic-no-history\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5 - Unknown product",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Brandora-Local-Test",
+            "value": "true"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": \"عندكم ديناصور؟\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/dev/ai/respond",
+        "description": "Independent synthetic message. No credentials, persisted customer or saved history."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected status\", function () { pm.response.to.have.status(200); });",
+              "const body = pm.response.json();",
+              "pm.test(\"Exact read-only E0-3 contract\", function () {",
+              "  pm.expect(Object.keys(body).sort()).to.eql([\"intent\",\"orderCandidate\",\"reply\",\"requiresReview\"]);",
+              "  pm.expect(body.orderCandidate).to.eql(null);",
+              "});",
+              "pm.test(\"Synthetic local mode is explicit\", function () {",
+              "  pm.expect(pm.response.headers.get(\"X-Brandora-Test-Mode\")).to.eql(\"synthetic-no-history\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "6 - Ambiguous selection needs options",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Brandora-Local-Test",
+            "value": "true"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": \"بكام التيشيرت؟\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/dev/ai/respond",
+        "description": "Independent synthetic message. No credentials, persisted customer or saved history."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected status\", function () { pm.response.to.have.status(200); });",
+              "const body = pm.response.json();",
+              "pm.test(\"Exact read-only E0-3 contract\", function () {",
+              "  pm.expect(Object.keys(body).sort()).to.eql([\"intent\",\"orderCandidate\",\"reply\",\"requiresReview\"]);",
+              "  pm.expect(body.orderCandidate).to.eql(null);",
+              "});",
+              "pm.test(\"Synthetic local mode is explicit\", function () {",
+              "  pm.expect(pm.response.headers.get(\"X-Brandora-Test-Mode\")).to.eql(\"synthetic-no-history\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "7 - Out-of-stock Black M",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Brandora-Local-Test",
+            "value": "true"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": \"هل التيشيرت الأسود مقاس M متوفر؟\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/dev/ai/respond",
+        "description": "Independent synthetic message. No credentials, persisted customer or saved history."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected status\", function () { pm.response.to.have.status(200); });",
+              "const body = pm.response.json();",
+              "pm.test(\"Exact read-only E0-3 contract\", function () {",
+              "  pm.expect(Object.keys(body).sort()).to.eql([\"intent\",\"orderCandidate\",\"reply\",\"requiresReview\"]);",
+              "  pm.expect(body.orderCandidate).to.eql(null);",
+              "});",
+              "pm.test(\"Synthetic local mode is explicit\", function () {",
+              "  pm.expect(pm.response.headers.get(\"X-Brandora-Test-Mode\")).to.eql(\"synthetic-no-history\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "8 - Follow-up without saved history",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Brandora-Local-Test",
+            "value": "true"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": \"طب مقاس L بكام؟\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/dev/ai/respond",
+        "description": "Independent synthetic message. No credentials, persisted customer or saved history."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected status\", function () { pm.response.to.have.status(200); });",
+              "const body = pm.response.json();",
+              "pm.test(\"Exact read-only E0-3 contract\", function () {",
+              "  pm.expect(Object.keys(body).sort()).to.eql([\"intent\",\"orderCandidate\",\"reply\",\"requiresReview\"]);",
+              "  pm.expect(body.orderCandidate).to.eql(null);",
+              "});",
+              "pm.test(\"Synthetic local mode is explicit\", function () {",
+              "  pm.expect(pm.response.headers.get(\"X-Brandora-Test-Mode\")).to.eql(\"synthetic-no-history\");",
+              "});",
+              "pm.test(\"History is unavailable\", function () { pm.expect(pm.response.headers.get(\"X-AI-History-Status\")).to.eql(\"unavailable\"); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "9 - Missing actual White M combination",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Brandora-Local-Test",
+            "value": "true"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": \"هل التيشيرت الأبيض مقاس M متوفر؟\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/dev/ai/respond",
+        "description": "Independent synthetic message. No credentials, persisted customer or saved history."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected status\", function () { pm.response.to.have.status(200); });",
+              "const body = pm.response.json();",
+              "pm.test(\"Exact read-only E0-3 contract\", function () {",
+              "  pm.expect(Object.keys(body).sort()).to.eql([\"intent\",\"orderCandidate\",\"reply\",\"requiresReview\"]);",
+              "  pm.expect(body.orderCandidate).to.eql(null);",
+              "});",
+              "pm.test(\"Synthetic local mode is explicit\", function () {",
+              "  pm.expect(pm.response.headers.get(\"X-Brandora-Test-Mode\")).to.eql(\"synthetic-no-history\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10 - Caller-supplied business scope rejected",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Brandora-Local-Test",
+            "value": "true"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": \"hi\",\n  \"businessId\": \"11111111-1111-4111-8111-111111111111\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/dev/ai/respond",
+        "description": "Independent synthetic message. No credentials, persisted customer or saved history."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected status\", function () { pm.response.to.have.status(400); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "11 - Caller-supplied history rejected",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Brandora-Local-Test",
+            "value": "true"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": \"hi\",\n  \"history\": []\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/dev/ai/respond",
+        "description": "Independent synthetic message. No credentials, persisted customer or saved history."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected status\", function () { pm.response.to.have.status(400); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "12 - Local confirmation header required",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": \"hi\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/dev/ai/respond",
+        "description": "Independent synthetic message. No credentials, persisted customer or saved history."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected status\", function () { pm.response.to.have.status(403); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "13 - Blank message rejected",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Brandora-Local-Test",
+            "value": "true"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": \" \"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/dev/ai/respond",
+        "description": "Independent synthetic message. No credentials, persisted customer or saved history."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected status\", function () { pm.response.to.have.status(400); });"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

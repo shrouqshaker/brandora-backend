@@ -54,13 +54,16 @@ timeouts. Fake timers verify response timing without real email or database acce
 `controller-route-inventory.spec.cjs` runs automatically in `npm test` after its
 pretest build. It discovers compiled controllers directly under `dist/`, verifies
 every route against the reviewed authorization policy. Anonymous routes are the
-six rate-limited Auth operations and public App Links. It reads no temporary reports or
+six rate-limited Auth operations and public App Links. The internal AI route is
+exempt from owner JWT but requires its separate service guard and signed context.
+The inventory verifies that guard is present. It reads no temporary reports or
 archived code. For a standalone inventory after building, run
 `node verification/controller-route-inventory.cjs`.
 
 `npm run test:auth-hardening:postgres` also uses that maintained inventory to send
-anonymous HTTP requests to all 42 owner-JWT-protected endpoints through the real
-global guard. The PostgreSQL verifier also checks persistent
+anonymous HTTP requests to all 43 owner-JWT-protected endpoints through the real
+global guard. The separately guarded internal AI endpoint is covered by
+`regressions/ai-integration.spec.ts`. The PostgreSQL verifier also checks persistent
 rate-limit counters by closing the first database
 connection/provider and enforcing the same quota through a fresh replacement.
 These checks use the verifier's newly created random local database, never a
@@ -71,8 +74,8 @@ expiry and unavailable-store assertions remain enabled.
 Security hardening adds `auth-hardening.spec.ts` for shared-store quotas, proxy
 boundaries, fail-closed behavior, reset validation, Brevo configuration and ExcelJS
 UUID compatibility. The original Auth assertions remain and now use session-backed
-JWT fixtures. Current non-AI inventory is 49 endpoints: 42 owner-JWT-protected endpoints
-and seven anonymous endpoints (six Auth
+JWT fixtures. Current inventory is 51 endpoints: 43 owner-JWT-protected endpoints,
+one service-guarded internal AI endpoint and seven anonymous endpoints (six Auth
 operations and public App Links). No general business endpoint became public.
 
 `npm run test:auth-hardening:postgres` creates a fresh isolated local database on

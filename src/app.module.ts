@@ -8,6 +8,7 @@ import { ProductsModule } from './products/products.module';
 import { VariantsModule } from './variants/variants.module';
 import { AuthModule } from './auth/auth.module';
 import { AppLinksController } from './app-links.controller';
+import { AiModule } from './ai/ai.module';
 
 @Module({
   controllers: [AppLinksController],
@@ -33,6 +34,7 @@ import { AppLinksController } from './app-links.controller';
     ProductsModule,
     VariantsModule,
     AuthModule,
+    AiModule,
   ],
 })
 export class AppModule {}

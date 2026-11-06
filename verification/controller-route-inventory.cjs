@@ -73,10 +73,17 @@ function controllerRoutes() {
 
 function verifyRoutePolicy({ verb, route, scope, guards }) {
   const { AuthRateGuard } = require('../dist/auth/auth-rate.guard');
+  const { AiInternalGuard } = require('../dist/ai/ai-internal.guard');
   let expected;
   if (verb === 'GET' && route === '/.well-known/assetlinks.json')
     expected = 'public';
-  else if (verb === 'POST' && publicPaths.has(route)) expected = 'public';
+  else if (verb === 'POST' && route === '/internal/ai/data') {
+    expected = 'public';
+    assert.ok(
+      guards.includes(AiInternalGuard),
+      'Internal AI service guard is mandatory',
+    );
+  } else if (verb === 'POST' && publicPaths.has(route)) expected = 'public';
   else if (
     (route === '/auth/me' && verb === 'GET') ||
     (route === '/auth/logout-all' && verb === 'POST') ||
@@ -103,11 +110,11 @@ function verifyControllerInventory(routes = controllerRoutes()) {
   );
   assert.equal(
     routes.length,
-    49,
+    51,
     'Review the policy and endpoint inventory when adding routes',
   );
   const publicCount = routes.filter(
-    (r) => r.scope === 'public',
+    (r) => r.scope === 'public' && r.route !== '/internal/ai/data',
   ).length;
   assert.equal(publicCount, 7);
   return {
