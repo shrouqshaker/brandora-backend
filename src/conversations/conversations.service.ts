@@ -22,6 +22,7 @@ export const messageSelect = {
   externalMessageId: true,
   content: true,
   messageType: true,
+  status: true,
   createdAt: true,
 } satisfies Prisma.MessageSelect;
 
@@ -31,6 +32,10 @@ const conversationSelect = {
   customerId: true,
   channel: true,
   status: true,
+  aiEnabled: true,
+  handoffReason: true,
+  lastMessageAt: true,
+  lastCustomerMessageAt: true,
   createdAt: true,
   updatedAt: true,
   customer: { select: { id: true, phone: true, name: true } },
@@ -116,15 +121,30 @@ export class ConversationsService {
           });
           const message = await tx.message.create({
             data: {
+              businessId,
               conversationId: conversation.id,
               senderType: MessageSenderType.CUSTOMER,
               externalMessageId,
               content: input.content,
               messageType: input.messageType ?? MessageType.TEXT,
+              status: 'RECEIVED',
             },
             select: messageSelect,
           });
-          return { duplicate: false, customer, conversation, message };
+          const touched = await tx.conversation.update({
+            where: { id: conversation.id },
+            data: {
+              lastMessageAt: message.createdAt,
+              lastCustomerMessageAt: message.createdAt,
+            },
+            select: conversationSelect,
+          });
+          return {
+            duplicate: false,
+            customer,
+            conversation: touched,
+            message,
+          };
         });
       } catch (error: unknown) {
         if (!isUniqueViolation(error)) throw error;
@@ -190,7 +210,7 @@ export class ConversationsService {
     pagination: PaginationQueryDto,
   ) {
     await this.getOne(businessId, conversationId);
-    const where = { conversationId };
+    const where = { businessId, conversationId };
     const totalCount = await this.prisma.message.count({ where });
     const items =
       pagination.offset >= totalCount

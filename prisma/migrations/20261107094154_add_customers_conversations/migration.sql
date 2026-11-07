@@ -10,6 +10,9 @@ CREATE TYPE "MessageSenderType" AS ENUM ('CUSTOMER', 'AI', 'OWNER');
 -- CreateEnum
 CREATE TYPE "MessageType" AS ENUM ('TEXT', 'IMAGE', 'AUDIO', 'VIDEO', 'DOCUMENT', 'LOCATION', 'OTHER');
 
+-- CreateEnum
+CREATE TYPE "MessageDeliveryStatus" AS ENUM ('RECEIVED', 'PENDING', 'SENT', 'DELIVERED', 'READ', 'FAILED');
+
 -- CreateTable
 CREATE TABLE "Customer" (
     "id" UUID NOT NULL,
@@ -29,6 +32,11 @@ CREATE TABLE "Conversation" (
     "customerId" UUID NOT NULL,
     "channel" "ConversationChannel" NOT NULL DEFAULT 'WHATSAPP',
     "status" "ConversationStatus" NOT NULL DEFAULT 'OPEN',
+    "aiEnabled" BOOLEAN NOT NULL DEFAULT true,
+    "handoffReason" VARCHAR(100),
+    "handoffAt" TIMESTAMP(3),
+    "lastMessageAt" TIMESTAMP(3),
+    "lastCustomerMessageAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -38,11 +46,14 @@ CREATE TABLE "Conversation" (
 -- CreateTable
 CREATE TABLE "Message" (
     "id" UUID NOT NULL,
+    "businessId" UUID NOT NULL,
     "conversationId" UUID NOT NULL,
     "senderType" "MessageSenderType" NOT NULL,
     "externalMessageId" VARCHAR(255),
     "content" TEXT NOT NULL,
     "messageType" "MessageType" NOT NULL DEFAULT 'TEXT',
+    "status" "MessageDeliveryStatus" NOT NULL DEFAULT 'RECEIVED',
+    "aiMeta" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Message_pkey" PRIMARY KEY ("id")
@@ -55,6 +66,9 @@ CREATE INDEX "Customer_businessId_createdAt_idx" ON "Customer"("businessId", "cr
 CREATE UNIQUE INDEX "Customer_businessId_phone_key" ON "Customer"("businessId", "phone");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "Customer_businessId_id_key" ON "Customer"("businessId", "id");
+
+-- CreateIndex
 CREATE INDEX "Conversation_businessId_updatedAt_idx" ON "Conversation"("businessId", "updatedAt");
 
 -- CreateIndex
@@ -64,10 +78,13 @@ CREATE INDEX "Conversation_customerId_idx" ON "Conversation"("customerId");
 CREATE UNIQUE INDEX "Conversation_businessId_customerId_channel_key" ON "Conversation"("businessId", "customerId", "channel");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "Conversation_businessId_id_key" ON "Conversation"("businessId", "id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Message_externalMessageId_key" ON "Message"("externalMessageId");
 
 -- CreateIndex
-CREATE INDEX "Message_conversationId_createdAt_idx" ON "Message"("conversationId", "createdAt");
+CREATE INDEX "Message_businessId_conversationId_createdAt_idx" ON "Message"("businessId", "conversationId", "createdAt");
 
 -- AddForeignKey
 ALTER TABLE "Customer" ADD CONSTRAINT "Customer_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -76,7 +93,10 @@ ALTER TABLE "Customer" ADD CONSTRAINT "Customer_businessId_fkey" FOREIGN KEY ("b
 ALTER TABLE "Conversation" ADD CONSTRAINT "Conversation_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Conversation" ADD CONSTRAINT "Conversation_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "Conversation" ADD CONSTRAINT "Conversation_businessId_customerId_fkey" FOREIGN KEY ("businessId", "customerId") REFERENCES "Customer"("businessId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
-ALTER TABLE "Message" ADD CONSTRAINT "Message_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "Conversation"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "Message" ADD CONSTRAINT "Message_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Message" ADD CONSTRAINT "Message_businessId_conversationId_fkey" FOREIGN KEY ("businessId", "conversationId") REFERENCES "Conversation"("businessId", "id") ON DELETE RESTRICT ON UPDATE RESTRICT;

@@ -181,6 +181,7 @@ async function seedBusiness(
       continue;
     await prisma.message.createMany({
       data: c.messages.map((m, j) => ({
+        businessId,
         conversationId: conversation.id,
         senderType: m.from,
         externalMessageId: m.wamid ?? null,
