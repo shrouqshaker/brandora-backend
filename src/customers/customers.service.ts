@@ -51,6 +51,22 @@ export class CustomersService {
     return customer;
   }
 
+  /** Used by ConversationsService inside its transaction. */
+  findOrCreateByPhone(
+    tx: Prisma.TransactionClient,
+    businessId: string,
+    phone: string,
+    name?: string,
+  ) {
+    return tx.customer.upsert({
+      where: { businessId_phone: { businessId, phone } },
+      create: { businessId, phone, name },
+      // A newer WhatsApp profile name replaces the old one.
+      update: name ? { name } : {},
+      select: customerSelect,
+    });
+  }
+
   private async requireBusiness(businessId: string): Promise<void> {
     const business = await this.prisma.business.findUnique({
       where: { id: businessId },

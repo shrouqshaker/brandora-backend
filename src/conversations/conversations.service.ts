@@ -4,29 +4,21 @@ import { ErrorCode } from '../common/errors/error-code';
 import { normalizePhone } from '../common/phone/normalize-phone';
 import { createPagination } from '../common/pagination/pagination';
 import { PaginationQueryDto } from '../common/pagination/pagination-query.dto';
-import { customerSelect } from '../customers/customers.service';
+import {
+  CustomersService,
+  customerSelect,
+} from '../customers/customers.service';
 import {
   ConversationChannel,
   ConversationStatus,
-  MessageSenderType,
   MessageType,
   Prisma,
 } from '../generated/prisma/client';
+import { MessagesService, messageSelect } from '../messages/messages.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ListConversationsDto } from './dto/list-conversations.dto';
 
-export const messageSelect = {
-  id: true,
-  conversationId: true,
-  senderType: true,
-  externalMessageId: true,
-  content: true,
-  messageType: true,
-  status: true,
-  createdAt: true,
-} satisfies Prisma.MessageSelect;
-
-const conversationSelect = {
+export const conversationSelect = {
   id: true,
   businessId: true,
   customerId: true,
@@ -65,11 +57,15 @@ const MAX_ATTEMPTS = 2;
 
 @Injectable()
 export class ConversationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly customers: CustomersService,
+    private readonly messages: MessagesService,
+  ) {}
 
   /**
-   * The single entry point for "a customer wrote to a business". The dev
-   * endpoint calls it today; the WhatsApp webhook will call it later.
+   * The single entry point for "a customer wrote to a business".
+   * Called by the dev endpoint and by the WhatsApp webhook.
    * Safe to call twice with the same externalMessageId.
    */
   async ingestInboundMessage(
@@ -96,12 +92,12 @@ export class ConversationsService {
     for (let attempt = 1; ; attempt++) {
       try {
         return await this.prisma.$transaction(async (tx) => {
-          const customer = await tx.customer.upsert({
-            where: { businessId_phone: { businessId, phone } },
-            create: { businessId, phone, name },
-            update: name ? { name } : {},
-            select: customerSelect,
-          });
+          const customer = await this.customers.findOrCreateByPhone(
+            tx,
+            businessId,
+            phone,
+            name,
+          );
           const conversation = await tx.conversation.upsert({
             where: {
               businessId_customerId_channel: {
@@ -115,21 +111,16 @@ export class ConversationsService {
               customerId: customer.id,
               channel: ConversationChannel.WHATSAPP,
             },
-            // A new customer message reopens a closed conversation and bumps updatedAt.
+            // A new customer message reopens a closed conversation.
             update: { status: ConversationStatus.OPEN },
-            select: conversationSelect,
+            select: { id: true },
           });
-          const message = await tx.message.create({
-            data: {
-              businessId,
-              conversationId: conversation.id,
-              senderType: MessageSenderType.CUSTOMER,
-              externalMessageId,
-              content: input.content,
-              messageType: input.messageType ?? MessageType.TEXT,
-              status: 'RECEIVED',
-            },
-            select: messageSelect,
+          const message = await this.messages.createInbound(tx, {
+            businessId,
+            conversationId: conversation.id,
+            externalMessageId,
+            content: input.content,
+            messageType: input.messageType ?? MessageType.TEXT,
           });
           const touched = await tx.conversation.update({
             where: { id: conversation.id },
@@ -203,26 +194,17 @@ export class ConversationsService {
     return conversation;
   }
 
-  /** Newest first, so offset paging returns the latest page first; clients reverse for display. */
   async listMessages(
     businessId: string,
     conversationId: string,
     pagination: PaginationQueryDto,
   ) {
     await this.getOne(businessId, conversationId);
-    const where = { businessId, conversationId };
-    const totalCount = await this.prisma.message.count({ where });
-    const items =
-      pagination.offset >= totalCount
-        ? []
-        : await this.prisma.message.findMany({
-            where,
-            select: messageSelect,
-            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-            take: pagination.limit,
-            skip: pagination.offset,
-          });
-    return { pagination: createPagination(pagination, totalCount), items };
+    return this.messages.listForConversation(
+      businessId,
+      conversationId,
+      pagination,
+    );
   }
 
   private async findDuplicate(
