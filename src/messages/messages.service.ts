@@ -25,14 +25,15 @@ export type MessageView = Prisma.MessageGetPayload<{
   select: typeof messageSelect;
 }>;
 
-/** Order of delivery states. A status update never moves a message backwards. */
-const STATUS_RANK: Record<MessageDeliveryStatus, number> = {
-  RECEIVED: 0,
-  PENDING: 0,
-  SENT: 1,
-  DELIVERED: 2,
-  READ: 3,
-  FAILED: 4,
+type DeliveryUpdate = 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
+
+const { PENDING, SENT, DELIVERED } = MessageDeliveryStatus;
+
+const ALLOWED_FROM: Record<DeliveryUpdate, MessageDeliveryStatus[]> = {
+  SENT: [PENDING],
+  DELIVERED: [PENDING, SENT],
+  READ: [PENDING, SENT, DELIVERED],
+  FAILED: [PENDING, SENT],
 };
 
 @Injectable()
@@ -121,21 +122,19 @@ export class MessagesService {
     return newestFirst.reverse();
   }
 
-  /** From a WhatsApp status webhook (sent / delivered / read / failed). */
   async updateDeliveryStatus(
+    businessId: string,
     externalMessageId: string,
-    status: 'SENT' | 'DELIVERED' | 'READ' | 'FAILED',
+    status: DeliveryUpdate,
   ): Promise<boolean> {
-    const message = await this.prisma.message.findUnique({
-      where: { externalMessageId },
-      select: { id: true, status: true },
-    });
-    if (!message || STATUS_RANK[status] <= STATUS_RANK[message.status])
-      return false;
-    await this.prisma.message.update({
-      where: { id: message.id },
+    const { count } = await this.prisma.message.updateMany({
+      where: {
+        businessId,
+        externalMessageId,
+        status: { in: ALLOWED_FROM[status] },
+      },
       data: { status },
     });
-    return true;
+    return count > 0;
   }
 }
