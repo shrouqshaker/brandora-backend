@@ -4,7 +4,7 @@
  * the unique keys (businessId + phone), and messages are only inserted into
  * conversations that are still empty (so timestamps never shift on re-runs).
  *
- *   npx prisma db seed
+ *   npx prisma db seed   (refuses unless DATABASE_URL is localhost)
  */
 import 'dotenv/config';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -14,6 +14,7 @@ import {
   MessageSenderType as Sender,
   PrismaClient,
 } from '../src/generated/prisma/client';
+import { isLocalDatabaseUrl } from '../src/common/database/is-local-database-url';
 
 export const SEED_BUSINESS_A = 'a0000000-0000-4000-8000-000000000001';
 export const SEED_BUSINESS_B = 'b0000000-0000-4000-8000-000000000002';
@@ -118,6 +119,10 @@ const businessB: SeedCustomer[] = [
 async function main(): Promise<void> {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is not set');
+  if (!isLocalDatabaseUrl(url))
+    throw new Error(
+      'Refusing to seed: DATABASE_URL must point at localhost (demo data only)',
+    );
   const prisma = new PrismaClient({
     adapter: new PrismaPg({ connectionString: url }),
   });
