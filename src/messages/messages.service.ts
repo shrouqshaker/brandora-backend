@@ -29,10 +29,16 @@ type DeliveryUpdate = 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
 
 const { PENDING, SENT, DELIVERED, FAILED } = MessageDeliveryStatus;
 
+/**
+ * For each new status: the statuses a message is allowed to move from.
+ * SENT -> DELIVERED -> READ only moves forward. FAILED only before delivery,
+ * and a delivered or read receipt proves delivery, so it also replaces FAILED.
+ * Customer messages (RECEIVED) are never in these lists, so they never change.
+ */
 const ALLOWED_FROM: Record<DeliveryUpdate, MessageDeliveryStatus[]> = {
   SENT: [PENDING],
-  DELIVERED: [PENDING, SENT],
-  READ: [PENDING, SENT, DELIVERED],
+  DELIVERED: [PENDING, SENT, FAILED],
+  READ: [PENDING, SENT, DELIVERED, FAILED],
   FAILED: [PENDING, SENT],
 };
 
