@@ -122,12 +122,26 @@ export class ConversationsService {
             content: input.content,
             messageType: input.messageType ?? MessageType.TEXT,
           });
-          const touched = await tx.conversation.update({
-            where: { id: conversation.id },
-            data: {
-              lastMessageAt: message.createdAt,
-              lastCustomerMessageAt: message.createdAt,
+          const at = message.createdAt;
+          await tx.conversation.updateMany({
+            where: {
+              id: conversation.id,
+              OR: [{ lastMessageAt: null }, { lastMessageAt: { lt: at } }],
             },
+            data: { lastMessageAt: at },
+          });
+          await tx.conversation.updateMany({
+            where: {
+              id: conversation.id,
+              OR: [
+                { lastCustomerMessageAt: null },
+                { lastCustomerMessageAt: { lt: at } },
+              ],
+            },
+            data: { lastCustomerMessageAt: at },
+          });
+          const touched = await tx.conversation.findUniqueOrThrow({
+            where: { id: conversation.id },
             select: conversationSelect,
           });
           return {
@@ -173,7 +187,10 @@ export class ConversationsService {
                 take: 1,
               },
             },
-            orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+            orderBy: [
+              { lastMessageAt: { sort: 'desc', nulls: 'last' } },
+              { id: 'desc' },
+            ],
             take: query.limit,
             skip: query.offset,
           });
