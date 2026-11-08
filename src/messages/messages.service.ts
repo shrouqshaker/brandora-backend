@@ -27,7 +27,7 @@ export type MessageView = Prisma.MessageGetPayload<{
 
 type DeliveryUpdate = 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
 
-const { PENDING, SENT, DELIVERED } = MessageDeliveryStatus;
+const { PENDING, SENT, DELIVERED, FAILED } = MessageDeliveryStatus;
 
 const ALLOWED_FROM: Record<DeliveryUpdate, MessageDeliveryStatus[]> = {
   SENT: [PENDING],
@@ -75,17 +75,25 @@ export class MessagesService {
     });
   }
 
-  /** After the send attempt: SENT with WhatsApp's id, or FAILED. */
-  markSendResult(id: string, result: { externalMessageId: string } | 'FAILED') {
-    return this.prisma.message.update({
-      where: { id },
+  /**
+   * After the send attempt: SENT with WhatsApp's id, or FAILED.
+   * Only changes a PENDING message of this business, so a retry or a late
+   * call can never overwrite a status that already moved on.
+   */
+  async markSendResult(
+    businessId: string,
+    id: string,
+    result: { externalMessageId: string } | 'FAILED',
+  ) {
+    await this.prisma.message.updateMany({
+      where: { id, businessId, status: PENDING },
       data:
         result === 'FAILED'
-          ? { status: MessageDeliveryStatus.FAILED }
-          : {
-              status: MessageDeliveryStatus.SENT,
-              externalMessageId: result.externalMessageId,
-            },
+          ? { status: FAILED }
+          : { status: SENT, externalMessageId: result.externalMessageId },
+    });
+    return this.prisma.message.findFirstOrThrow({
+      where: { id, businessId },
       select: messageSelect,
     });
   }
