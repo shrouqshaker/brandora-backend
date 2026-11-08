@@ -36,6 +36,7 @@ export class InboundMessageDto {
   @MaxLength(255)
   externalMessageId?: string;
 
+  @Transform(trim)
   @IsString()
   @IsNotEmpty()
   @MaxLength(4096)
