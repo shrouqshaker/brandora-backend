@@ -162,7 +162,12 @@ export class ConversationsService {
           );
           if (existing) return existing;
         }
-        if (attempt >= MAX_ATTEMPTS) throw error;
+        if (attempt >= MAX_ATTEMPTS)
+          throw new AppHttpException(
+            ErrorCode.CONFLICT,
+            HttpStatus.CONFLICT,
+            'The message could not be stored because of a concurrent change; retry the request',
+          );
       }
     }
   }
