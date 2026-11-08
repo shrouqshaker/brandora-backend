@@ -14,11 +14,12 @@ import { ErrorCode } from '../common/errors/error-code';
 import { ConversationsService } from './conversations.service';
 import { InboundMessageDto } from './dto/inbound-message.dto';
 import { AuthScope } from '../auth/auth-policy';
+import { isLocalDatabaseUrl } from '../common/database/is-local-database-url';
 
 /**
  * TEMPORARY, development only. Simulates "a customer sent a WhatsApp message"
- * until the real webhook exists. Off unless ENABLE_DEV_ENDPOINTS=true, and it
- * answers 404 (as if the route did not exist) when off.
+ * until the real webhook exists. Off unless ENABLE_DEV_ENDPOINTS=true and
+ * DATABASE_URL is local, and it answers 404 (as if the route did not exist) when off.
  * Delete this file (and its line in conversations.module.ts) with the webhook work.
  */
 @Controller('businesses/:businessId/dev')
@@ -35,7 +36,10 @@ export class DevInboundController {
     @Body() dto: InboundMessageDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    if (this.config.get<string>('ENABLE_DEV_ENDPOINTS') !== 'true')
+    const enabled =
+      this.config.get<string>('ENABLE_DEV_ENDPOINTS') === 'true' &&
+      isLocalDatabaseUrl(this.config.get<string>('DATABASE_URL'));
+    if (!enabled)
       throw new AppHttpException(
         ErrorCode.NOT_FOUND,
         HttpStatus.NOT_FOUND,
