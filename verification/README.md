@@ -167,3 +167,13 @@ application assertions, including concurrent Main changes, five-slot reservation
 races and two real Excel executions preserving images. Cloudinary was mocked.
 The separate localhost verifiers were not rerun; no Production or live external
 asset/OTP verification is claimed.
+
+Customers/conversations/messages: `npm run test:conversations:postgres` builds
+current source and runs `conversations-postgres.cjs` with Node's test runner on
+a new random database on a localhost PostgreSQL server (`TEST_POSTGRES_URL`, or
+the server in `.env` `DATABASE_URL`; anything else is refused). It upgrades from
+the main schema with Prisma while preserving existing rows, then checks drift,
+composite tenant keys in SQL, two-owner isolation over real JWT HTTP, dev-endpoint
+idempotency and races, forward-only conversation times and inbox order,
+forward-only delivery statuses, validation and the seed guard. The database is
+dropped afterwards unless `KEEP_TEST_DB=1`. See [the API](../docs/conversations-api.md).
