@@ -325,7 +325,7 @@ describe('Complete controller authorization policy inventory', () => {
         'AuthController.resetPassword',
       ]).toContain(label);
   });
- it('covers 55 endpoints including owner-only images', () => {
+  it('covers 55 endpoints including owner-only images', () => {
     expect(routes).toHaveLength(55);
     expect(routes.filter((route) => route.scope === 'public')).toHaveLength(7);
   });
