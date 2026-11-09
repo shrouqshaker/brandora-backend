@@ -297,4 +297,7 @@ one in A, to show uniqueness is per business. The seed refuses to run unless
 on a new random database on a localhost PostgreSQL server and deletes it
 afterwards. It upgrades from the main schema with Prisma, checks drift, tenant
 keys, two-owner isolation over real JWT HTTP, idempotency and races, time
-ordering, delivery status rules, validation and the seed guard.
+ordering (including AI/owner replies), delivery status and send-result rules,
+validation and length in code points, the seed guard and the rollback.
+`npm test` also runs `regressions/message-limits.spec.ts` and
+`regressions/message-conflicts.spec.ts` (no database).

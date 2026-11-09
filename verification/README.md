@@ -177,3 +177,12 @@ composite tenant keys in SQL, two-owner isolation over real JWT HTTP, dev-endpoi
 idempotency and races, forward-only conversation times and inbox order,
 forward-only delivery statuses, validation and the seed guard. The database is
 dropped afterwards unless `KEEP_TEST_DB=1`. See [the API](../docs/conversations-api.md).
+It also checks that AI/owner replies move the inbox order like customer messages,
+that a WhatsApp id stored twice on send answers 409, that length is counted in
+Unicode code points (Arabic and emoji, 4096 stored exactly, 4097 rejected), and
+the rollback script: refused while customers exist, then back to the main schema
+with the old rows untouched, then deployable again. The main-schema fixture now
+includes a category, a product and a tracked variant, and every main table is
+compared before and after the upgrade. `regressions/message-limits.spec.ts` and
+`regressions/message-conflicts.spec.ts` run in `npm test` with mocks: length
+policy, 409 after an exhausted retry and the send-id conflict.

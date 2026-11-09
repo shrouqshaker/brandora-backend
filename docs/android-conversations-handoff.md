@@ -1,7 +1,7 @@
 # Conversations handoff for Yasmin — Android
 
-**Contract reviewed against backend commit `dbda218` on branch
-`feature/customers-conversations` (PR #1), 2026-11-08. Not merged or deployed yet.**
+**Contract reviewed against backend commit `d138217` on branch
+`feature/customers-conversations` (PR #1), 2026-11-09. Not merged or deployed yet.**
 Every JSON body below was captured from the real application on a disposable
 local database; IDs, tokens and times are illustrative. Until the PR is merged
 and Railway is deployed, use a local test backend agreed with Yomna.
