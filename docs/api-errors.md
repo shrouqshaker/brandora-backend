@@ -51,6 +51,12 @@ Excel upload limit. Multiple messages share a code when their semantics match.
 | Target quantity must be an integer between 0 and 2147483647                                                      | `INVENTORY_QUANTITY_INVALID`         |
 | Unknown inventory movement type                                                                                  | `INVENTORY_MOVEMENT_TYPE_INVALID`    |
 | Reference type must be 1 to 50 characters and reference ID, when supplied, 1 to 200 characters                   | `INVENTORY_REFERENCE_INVALID`        |
+| Customer not found in this business                                                                              | `CUSTOMER_NOT_FOUND`                 |
+| Conversation not found in this business                                                                          | `CONVERSATION_NOT_FOUND`             |
+| phone must be an international number with 8 to 15 digits, e.g. 201000000001                                     | `INVALID_PHONE_NUMBER`               |
+| externalMessageId already belongs to another business                                                            | `EXTERNAL_MESSAGE_ID_CONFLICT`       |
+| externalMessageId already belongs to another message                                                             | `EXTERNAL_MESSAGE_ID_CONFLICT`       |
+| The message could not be stored because of a concurrent change; retry the request                                | `CONFLICT`                           |
 | Stock changed concurrently; retry the operation                                                                  | `INVENTORY_CONFLICT`                 |
 
 Variant inventory adds `409 INVENTORY_INACTIVE` for stock writes/sales on inactive

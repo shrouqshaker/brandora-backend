@@ -23,6 +23,9 @@ model Business {
   importJobs         ImportJob[]
   inventoryMovements InventoryMovement[]
   memberships        BusinessMember[]
+  customers          Customer[]
+  conversations      Conversation[]
+  messages           Message[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 }
@@ -303,4 +306,100 @@ model ImportJob {
   @@index([businessId])
   @@index([businessId, createdAt])
   @@index([businessId, status])
+}
+
+enum ConversationChannel {
+  WHATSAPP
+}
+
+enum ConversationStatus {
+  OPEN
+  CLOSED
+}
+
+enum MessageSenderType {
+  CUSTOMER
+  AI
+  OWNER
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  AUDIO
+  VIDEO
+  DOCUMENT
+  LOCATION
+  OTHER
+}
+
+model Customer {
+  id            String         @id @default(uuid()) @db.Uuid
+  businessId    String         @db.Uuid
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  /// International format, digits only (WhatsApp wa_id style), e.g. 201000000001.
+  phone         String         @db.VarChar(20)
+  name          String?        @db.VarChar(200)
+  conversations Conversation[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@unique([businessId, phone])
+  // Lets Conversation reference (businessId, customerId) so both rows always share a business.
+  @@unique([businessId, id])
+  @@index([businessId, createdAt])
+}
+
+model Conversation {
+  id                    String              @id @default(uuid()) @db.Uuid
+  businessId            String              @db.Uuid
+  business              Business            @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  customerId            String              @db.Uuid
+  customer              Customer            @relation(fields: [businessId, customerId], references: [businessId, id], onDelete: Restrict, onUpdate: Restrict)
+  channel               ConversationChannel @default(WHATSAPP)
+  status                ConversationStatus  @default(OPEN)
+  /// Human handoff: false = the owner took over and the AI stays silent.
+  aiEnabled             Boolean             @default(true)
+  handoffReason         String?             @db.VarChar(100)
+  handoffAt             DateTime?
+  lastMessageAt         DateTime?
+  /// Last customer message; the owner may reply freely for 24 hours after it.
+  lastCustomerMessageAt DateTime?
+  messages              Message[]
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  /// MVP: one rolling conversation per customer per channel.
+  @@unique([businessId, customerId, channel])
+  @@unique([businessId, id])
+  @@index([businessId, updatedAt])
+  @@index([customerId])
+}
+
+model Message {
+  id                String                @id @default(uuid()) @db.Uuid
+  businessId        String                @db.Uuid
+  business          Business              @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  conversationId    String                @db.Uuid
+  conversation      Conversation          @relation(fields: [businessId, conversationId], references: [businessId, id], onDelete: Restrict, onUpdate: Restrict)
+  senderType        MessageSenderType
+  /// WhatsApp messages[].id (wamid...). Unique so a re-delivered webhook is stored once.
+  externalMessageId String?               @unique @db.VarChar(255)
+  content           String
+  messageType       MessageType           @default(TEXT)
+  status            MessageDeliveryStatus @default(RECEIVED)
+  /// What the AI returned for AI messages: intent, orderCandidate, source…
+  aiMeta            Json?                 @db.JsonB
+  createdAt         DateTime              @default(now())
+
+  @@index([businessId, conversationId, createdAt])
+}
+
+enum MessageDeliveryStatus {
+  RECEIVED
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
 }
