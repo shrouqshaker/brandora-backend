@@ -190,6 +190,13 @@ only accepted before delivery, and a delivered/read receipt replaces `FAILED`.
 Each update is one conditional query, so late or repeated WhatsApp events can
 never move a message backwards. Customer messages stay `RECEIVED`.
 
+Our own messages (AI or owner) are stored as `PENDING` before sending. The send
+result only changes a `PENDING` message of the same business: `SENT` with
+WhatsApp's id, or `FAILED`. A WhatsApp id that is already stored on another
+message answers `409 EXTERNAL_MESSAGE_ID_CONFLICT` and the message stays
+`PENDING`. A `FAILED` message is never sent again as the same row; a retry is a
+new message (who sends and when is decided with the WhatsApp work).
+
 Errors: same as Conversations.
 
 ## Dev inbound message (temporary, local only)

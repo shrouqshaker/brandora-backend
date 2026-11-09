@@ -1,5 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { AppHttpException } from '../common/errors/app-http.exception';
+import { isUniqueViolation } from '../common/database/is-unique-violation';
 import { ErrorCode } from '../common/errors/error-code';
 import { normalizePhone } from '../common/phone/normalize-phone';
 import { createPagination } from '../common/pagination/pagination';
@@ -258,12 +259,4 @@ export class ConversationsService {
       'Conversation not found in this business',
     );
   }
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { code?: unknown }).code === 'P2002'
-  );
 }

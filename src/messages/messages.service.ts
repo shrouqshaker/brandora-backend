@@ -1,4 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
+import { AppHttpException } from '../common/errors/app-http.exception';
+import { ErrorCode } from '../common/errors/error-code';
+import { isUniqueViolation } from '../common/database/is-unique-violation';
 import { createPagination } from '../common/pagination/pagination';
 import { PaginationQueryDto } from '../common/pagination/pagination-query.dto';
 import {
@@ -116,13 +119,24 @@ export class MessagesService {
     id: string,
     result: { externalMessageId: string } | 'FAILED',
   ) {
-    await this.prisma.message.updateMany({
-      where: { id, businessId, status: PENDING },
-      data:
-        result === 'FAILED'
-          ? { status: FAILED }
-          : { status: SENT, externalMessageId: result.externalMessageId },
-    });
+    try {
+      await this.prisma.message.updateMany({
+        where: { id, businessId, status: PENDING },
+        data:
+          result === 'FAILED'
+            ? { status: FAILED }
+            : { status: SENT, externalMessageId: result.externalMessageId },
+      });
+    } catch (error: unknown) {
+      if (!isUniqueViolation(error)) throw error;
+      // WhatsApp ids are unique; one that is already stored means a replay
+      // or a bug. Nothing was changed: the message is still PENDING.
+      throw new AppHttpException(
+        ErrorCode.EXTERNAL_MESSAGE_ID_CONFLICT,
+        HttpStatus.CONFLICT,
+        'externalMessageId already belongs to another message',
+      );
+    }
     return this.prisma.message.findFirstOrThrow({
       where: { id, businessId },
       select: messageSelect,

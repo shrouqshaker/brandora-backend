@@ -55,6 +55,7 @@ Excel upload limit. Multiple messages share a code when their semantics match.
 | Conversation not found in this business                                                                          | `CONVERSATION_NOT_FOUND`             |
 | phone must be an international number with 8 to 15 digits, e.g. 201000000001                                     | `INVALID_PHONE_NUMBER`               |
 | externalMessageId already belongs to another business                                                            | `EXTERNAL_MESSAGE_ID_CONFLICT`       |
+| externalMessageId already belongs to another message                                                             | `EXTERNAL_MESSAGE_ID_CONFLICT`       |
 | The message could not be stored because of a concurrent change; retry the request                                | `CONFLICT`                           |
 | Stock changed concurrently; retry the operation                                                                  | `INVENTORY_CONFLICT`                 |
 

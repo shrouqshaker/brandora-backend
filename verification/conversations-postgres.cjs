@@ -654,6 +654,14 @@ test('6. delivery status only moves forward, in one query, inside one business',
   await assert.rejects(messages.markSendResult(bizB, m.id, 'FAILED'));
   assert.equal(await status(m.id), 'SENT');
 
+  // WhatsApp's id already stored on another message: 409, nothing changes.
+  const clash = await outbound();
+  await assert.rejects(
+    messages.markSendResult(bizA, clash.id, { externalMessageId: out }),
+    (e) => e.getStatus() === 409 && e.code === 'EXTERNAL_MESSAGE_ID_CONFLICT',
+  );
+  assert.equal(await status(clash.id), 'PENDING');
+
   assert.equal(await messages.updateDeliveryStatus(bizB, out, 'READ'), false);
   assert.equal(await status(m.id), 'SENT');
   assert.equal(await messages.updateDeliveryStatus(bizA, out, 'READ'), true);
