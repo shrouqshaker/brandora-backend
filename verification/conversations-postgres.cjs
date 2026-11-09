@@ -58,8 +58,21 @@ const remoteUrl =
 const admin = new Client({ connectionString: urlFor('postgres') });
 
 let sql, app, http, config, messages, ownerA, ownerB, bizA, bizB;
+let mainTables, mainTypes, oldRows;
 let httpChecks = 0;
 
+function prismaRaw(...args) {
+  return spawnSync(
+    process.execPath,
+    ['node_modules/prisma/build/index.js', ...args],
+    {
+      cwd: root,
+      env: { ...process.env, DATABASE_URL: url },
+      encoding: 'utf8',
+      timeout: 120000,
+    },
+  );
+}
 function prisma(...args) {
   const r = spawnSync(
     process.execPath,
@@ -98,6 +111,19 @@ const wamid = (label) => `wamid.test-${label}-${randomUUID()}`;
 const count = async (query, params = []) =>
   (await sql.query(query, params)).rows[0].n;
 
+const tableNames = async () =>
+  (
+    await sql.query(
+      "SELECT table_name AS n FROM information_schema.tables WHERE table_schema='public' AND table_name <> '_prisma_migrations' ORDER BY 1",
+    )
+  ).rows.map((r) => r.n);
+const enumNames = async () =>
+  (
+    await sql.query(
+      "SELECT t.typname AS n FROM pg_type t JOIN pg_namespace s ON s.oid=t.typnamespace WHERE s.nspname='public' AND t.typtype='e' ORDER BY 1",
+    )
+  ).rows.map((r) => r.n);
+
 async function snapshotOf(tables) {
   const out = {};
   for (const t of tables)
@@ -117,9 +143,12 @@ before(
       await sql.query(readMigration(name));
       prisma('migrate', 'resolve', '--applied', name);
     }
-    // 2) Existing data that our migration must not touch.
+    // 2) Existing data that our migration must not touch: an owner with a
+    //    business, a category, a product and a tracked variant.
     const oldBusiness = randomUUID();
     const oldUser = randomUUID();
+    const oldCategory = randomUUID();
+    const oldProduct = randomUUID();
     await sql.query(
       'INSERT INTO "Business" (id,name,"updatedAt") VALUES ($1,\'Existing store\',now())',
       [oldBusiness],
@@ -132,12 +161,25 @@ before(
       'INSERT INTO "BusinessMember" (id,"userId","businessId","updatedAt") VALUES ($1,$2,$3,now())',
       [randomUUID(), oldUser, oldBusiness],
     );
-    const tables = ['Business', 'User', 'BusinessMember'];
-    const beforeUpgrade = await snapshotOf(tables);
+    await sql.query(
+      'INSERT INTO "Category" (id,"businessId",name,"updatedAt") VALUES ($1,$2,\'تيشيرتات\',now())',
+      [oldCategory, oldBusiness],
+    );
+    await sql.query(
+      'INSERT INTO "Product" (id,"businessId","categoryId",name,"externalKey","basePrice","updatedAt") VALUES ($1,$2,$3,\'تيشيرت أسود\',\'TS-1\',299.00,now())',
+      [oldProduct, oldBusiness, oldCategory],
+    );
+    await sql.query(
+      'INSERT INTO "ProductVariant" (id,"businessId","productId",sku,"unitPrice","trackInventory","stockQuantity","updatedAt") VALUES ($1,$2,$3,\'TS-1-L\',299.00,true,7,now())',
+      [randomUUID(), oldBusiness, oldProduct],
+    );
+    mainTables = await tableNames();
+    mainTypes = await enumNames();
+    oldRows = await snapshotOf(mainTables);
 
     // 3) Our migration, applied by Prisma exactly like a real deployment.
     prisma('migrate', 'deploy');
-    assert.deepEqual(await snapshotOf(tables), beforeUpgrade);
+    assert.deepEqual(await snapshotOf(mainTables), oldRows);
 
     // 4) The real application on the new database.
     Object.assign(process.env, {
@@ -406,6 +448,7 @@ test('4. owners only reach their own business: other owner, foreign ids, no toke
     await call('get', route, { status: 401, as: null });
   }
   await inbound(bizA, { phone: '201000000300', content: 'x' }, 404, ownerB);
+  await inbound(bizA, { phone: '201000000300', content: 'x' }, 401, null);
 
   // Business A's ids under business B's own path are simply "not found".
   assert.equal(
@@ -748,6 +791,40 @@ test('9. seed refuses a remote database, works on the upgraded schema, and is sa
   const second = seed(url);
   assert.equal(second.status, 0, second.stdout + second.stderr);
   assert.equal(await seeded(), n);
+});
+
+test('10. rollback: refused while customers exist, then back to main, then deployable again', async () => {
+  const rollback = fs.readFileSync(
+    path.join(root, 'prisma/maintenance/rollback-customers-conversations.sql'),
+    'utf8',
+  );
+  await assert.rejects(sql.query(rollback), /Refusing to roll back/);
+  assert.ok((await tableNames()).includes('Message'), 'nothing was dropped');
+
+  // Only test rows exist in this database, so they may go.
+  await sql.query('DELETE FROM "Message"');
+  await sql.query('DELETE FROM "Conversation"');
+  await sql.query('DELETE FROM "Customer"');
+  await sql.query(rollback);
+  assert.deepEqual(await tableNames(), mainTables);
+  assert.deepEqual(await enumNames(), mainTypes);
+  for (const [table, rows] of Object.entries(oldRows))
+    for (const row of rows)
+      assert.deepEqual(
+        (await sql.query(`SELECT * FROM "${table}" WHERE id=$1`, [row.id]))
+          .rows,
+        [row],
+        `${table} ${row.id} unchanged`,
+      );
+  const pending = prismaRaw('migrate', 'status');
+  assert.notEqual(pending.status, 0);
+  assert.match(pending.stdout + pending.stderr, new RegExp(ours));
+
+  // Running it twice is harmless, and the migration can be deployed again.
+  await sql.query(rollback);
+  prisma('migrate', 'deploy');
+  assert.match(prisma('migrate', 'status'), /up to date/);
+  assert.ok((await tableNames()).includes('Message'));
 });
 
 after(async () => {

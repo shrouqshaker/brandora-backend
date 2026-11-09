@@ -226,6 +226,27 @@ Errors: `400 INVALID_PHONE_NUMBER`, `400 VALIDATION_ERROR`,
 `409 EXTERNAL_MESSAGE_ID_CONFLICT` (the id is stored under another business),
 `409 CONFLICT` (a concurrent change outlasted the retry; retry the request).
 
+## Database rollout and rollback
+
+The migration `20261107094154_add_customers_conversations` only adds five enums,
+three tables, their indexes and foreign keys. It does not change any existing
+table or row. `npm run test:conversations:postgres` proves this on a disposable
+local database that starts from the main schema with an owner, business,
+category, product and variant, and compares every main table before and after.
+
+Deploy: back up first, then `npx prisma migrate deploy` (Railway/Neon in a
+window agreed with Shrouq; never from a laptop against Production).
+
+Rollback, only if the feature has to be removed before any real customer
+writes: redeploy the application without this feature, back up, then run
+[`prisma/maintenance/rollback-customers-conversations.sql`](../prisma/maintenance/rollback-customers-conversations.sql)
+(`npx prisma db execute --file prisma/maintenance/rollback-customers-conversations.sql`).
+It drops the three tables and five enums and removes the migration's history
+row, so a later `migrate deploy` applies it again. It refuses to run while any
+`Customer` row exists; with real chat history, restore the backup instead. It is
+all-or-nothing and safe to run twice. The test above runs it, checks that the
+database matches main again with the old rows untouched, and deploys again.
+
 ## Trying it locally
 
 ```bash
