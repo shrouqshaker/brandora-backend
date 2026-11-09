@@ -115,30 +115,13 @@ export class ConversationsService {
             update: { status: ConversationStatus.OPEN },
             select: { id: true },
           });
+          // Also moves lastMessageAt / lastCustomerMessageAt forward.
           const message = await this.messages.createInbound(tx, {
             businessId,
             conversationId: conversation.id,
             externalMessageId,
             content: input.content,
             messageType: input.messageType ?? MessageType.TEXT,
-          });
-          const at = message.createdAt;
-          await tx.conversation.updateMany({
-            where: {
-              id: conversation.id,
-              OR: [{ lastMessageAt: null }, { lastMessageAt: { lt: at } }],
-            },
-            data: { lastMessageAt: at },
-          });
-          await tx.conversation.updateMany({
-            where: {
-              id: conversation.id,
-              OR: [
-                { lastCustomerMessageAt: null },
-                { lastCustomerMessageAt: { lt: at } },
-              ],
-            },
-            data: { lastCustomerMessageAt: at },
           });
           const touched = await tx.conversation.findUniqueOrThrow({
             where: { id: conversation.id },

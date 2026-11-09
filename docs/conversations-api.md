@@ -115,13 +115,17 @@ changes when the owner changes a setting. Each item carries its customer and
 `GET /businesses/:businessId/conversations/:conversationId` returns the same
 item **without** `lastMessage`.
 
-| Field                   | Meaning                                                                    |
-| ----------------------- | -------------------------------------------------------------------------- |
-| `status`                | `OPEN` or `CLOSED`; a new customer message reopens a closed conversation   |
-| `aiEnabled`             | `false` when the owner took over and the AI stays silent                   |
-| `handoffReason`         | Why the AI handed over (set with the AI work), otherwise `null`            |
-| `lastMessageAt`         | Time of the newest message; only moves forward; `null` if none             |
-| `lastCustomerMessageAt` | Time of the newest customer message (24-hour reply window); `null` if none |
+| Field                   | Meaning                                                                  |
+| ----------------------- | ------------------------------------------------------------------------ |
+| `status`                | `OPEN` or `CLOSED`; a new customer message reopens a closed conversation |
+| `aiEnabled`             | `false` when the owner took over and the AI stays silent                 |
+| `handoffReason`         | Why the AI handed over (set with the AI work), otherwise `null`          |
+| `lastMessageAt`         | Time of the newest message (customer, AI or owner); only moves forward   |
+| `lastCustomerMessageAt` | Time of the newest customer message (24-hour reply window)               |
+
+Both times are `null` until the first message. Every message is written by
+`MessagesService` in the same transaction that moves these times, so
+`lastMessageAt` always equals `lastMessage.createdAt`, whoever sent it.
 
 MVP rule: one rolling conversation per customer per channel.
 

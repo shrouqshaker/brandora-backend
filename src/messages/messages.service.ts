@@ -42,12 +42,17 @@ const ALLOWED_FROM: Record<DeliveryUpdate, MessageDeliveryStatus[]> = {
   FAILED: [PENDING, SENT],
 };
 
+/**
+ * The only place that writes messages. Every new message also moves its
+ * conversation's times forward in the same transaction, so the inbox order
+ * (lastMessageAt) always matches lastMessage, whoever sent it.
+ */
 @Injectable()
 export class MessagesService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** A customer message. Runs inside the caller's transaction. */
-  createInbound(
+  async createInbound(
     tx: Prisma.TransactionClient,
     data: {
       businessId: string;
@@ -57,7 +62,7 @@ export class MessagesService {
       messageType: MessageType;
     },
   ) {
-    return tx.message.create({
+    const message = await tx.message.create({
       data: {
         ...data,
         senderType: MessageSenderType.CUSTOMER,
@@ -65,6 +70,14 @@ export class MessagesService {
       },
       select: messageSelect,
     });
+    await this.moveTimesForward(
+      tx,
+      data.businessId,
+      data.conversationId,
+      message.createdAt,
+      true,
+    );
+    return message;
   }
 
   /** An AI or owner message, stored as PENDING before it is sent. */
@@ -75,9 +88,21 @@ export class MessagesService {
     content: string;
     aiMeta?: Prisma.InputJsonValue;
   }) {
-    return this.prisma.message.create({
-      data: { ...data, status: MessageDeliveryStatus.PENDING },
-      select: messageSelect,
+    return this.prisma.$transaction(async (tx) => {
+      const message = await tx.message.create({
+        data: { ...data, status: PENDING },
+        select: messageSelect,
+      });
+      // Our reply is new activity, but not a customer message: the 24-hour
+      // window (lastCustomerMessageAt) stays where it is.
+      await this.moveTimesForward(
+        tx,
+        data.businessId,
+        data.conversationId,
+        message.createdAt,
+        false,
+      );
+      return message;
     });
   }
 
@@ -125,17 +150,6 @@ export class MessagesService {
     return { pagination: createPagination(page, totalCount), items };
   }
 
-  /** The last `limit` messages, oldest first (for the AI context). */
-  async recentHistory(businessId: string, conversationId: string, limit = 20) {
-    const newestFirst = await this.prisma.message.findMany({
-      where: { businessId, conversationId },
-      select: { senderType: true, content: true, aiMeta: true },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: limit,
-    });
-    return newestFirst.reverse();
-  }
-
   async updateDeliveryStatus(
     businessId: string,
     externalMessageId: string,
@@ -150,5 +164,37 @@ export class MessagesService {
       data: { status },
     });
     return count > 0;
+  }
+
+  /**
+   * Sets the conversation's times to `at` only where `at` is newer (or the
+   * time is still empty), so a late or concurrent write never pulls them back.
+   */
+  private async moveTimesForward(
+    tx: Prisma.TransactionClient,
+    businessId: string,
+    conversationId: string,
+    at: Date,
+    fromCustomer: boolean,
+  ): Promise<void> {
+    const conversation = { id: conversationId, businessId };
+    await tx.conversation.updateMany({
+      where: {
+        ...conversation,
+        OR: [{ lastMessageAt: null }, { lastMessageAt: { lt: at } }],
+      },
+      data: { lastMessageAt: at },
+    });
+    if (!fromCustomer) return;
+    await tx.conversation.updateMany({
+      where: {
+        ...conversation,
+        OR: [
+          { lastCustomerMessageAt: null },
+          { lastCustomerMessageAt: { lt: at } },
+        ],
+      },
+      data: { lastCustomerMessageAt: at },
+    });
   }
 }

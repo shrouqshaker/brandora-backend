@@ -547,6 +547,62 @@ test('5. conversation times only move forward and the inbox is sorted by the las
   const row = list.items.find((c) => c.id === x.conversation.id);
   assert.equal(row.lastMessage.id, filled.message.id);
 
+  // Our replies (AI or owner) are activity too: the chat moves to the top,
+  // lastMessageAt follows lastMessage, and the 24-hour window stays put.
+  const reply = await messages.createOutbound({
+    businessId: bizA,
+    conversationId: y.conversation.id,
+    senderType: 'AI',
+    content: 'Yes, we have it.',
+  });
+  const replied = await call(
+    'get',
+    `/businesses/${bizA}/conversations?limit=100`,
+  );
+  assert.equal(replied.items[0].id, y.conversation.id);
+  assert.equal(replied.items[0].lastMessage.id, reply.id);
+  assert.equal(replied.items[0].lastMessageAt, reply.createdAt.toISOString());
+  assert.equal(
+    replied.items[0].lastCustomerMessageAt,
+    y.conversation.lastCustomerMessageAt,
+  );
+  for (const item of replied.items)
+    if (item.lastMessage)
+      assert.equal(item.lastMessageAt, item.lastMessage.createdAt, item.id);
+
+  // A reply never pulls a newer time back, and another business cannot
+  // write into this conversation at all (the transaction is rolled back).
+  await sql.query(
+    'UPDATE "Conversation" SET "lastMessageAt"=$2::timestamp WHERE id=$1',
+    [y.conversation.id, '2030-01-01 00:00:00'],
+  );
+  await messages.createOutbound({
+    businessId: bizA,
+    conversationId: y.conversation.id,
+    senderType: 'OWNER',
+    content: 'Late owner reply',
+  });
+  await assert.rejects(
+    messages.createOutbound({
+      businessId: bizB,
+      conversationId: y.conversation.id,
+      senderType: 'OWNER',
+      content: 'Wrong business',
+    }),
+  );
+  const yNow = await call(
+    'get',
+    `/businesses/${bizA}/conversations/${y.conversation.id}`,
+  );
+  assert.equal(yNow.lastMessageAt, future);
+  assert.equal(
+    await count(
+      'SELECT count(*)::int AS n FROM "Message" WHERE "conversationId"=$1 AND content=$2',
+      [y.conversation.id, 'Wrong business'],
+    ),
+    0,
+  );
+
   // A conversation without any message time goes last.
   const lonelyCustomer = randomUUID();
   const lonely = randomUUID();

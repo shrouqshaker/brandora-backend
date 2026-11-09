@@ -300,7 +300,7 @@ Page 2 (`limit=2&offset=2`), the last page:
 | `conversation.status`                | `OPEN`, `CLOSED`                                                   | No                           |
 | `conversation.aiEnabled`             | boolean                                                            | No                           |
 | `conversation.handoffReason`         | string (for example `AI_REVIEW_REQUIRED`, later)                   | Yes                          |
-| `conversation.lastMessageAt`         | ISO-8601 UTC                                                       | Yes (no messages yet)        |
+| `conversation.lastMessageAt`         | ISO-8601 UTC; time of `lastMessage` (any sender)                   | Yes (no messages yet)        |
 | `conversation.lastCustomerMessageAt` | ISO-8601 UTC                                                       | Yes                          |
 | `lastMessage` (list only)            | message object                                                     | Yes                          |
 | `message.senderType`                 | `CUSTOMER`, `AI`, `OWNER`                                          | No                           |
