@@ -311,6 +311,8 @@ Page 2 (`limit=2&offset=2`), the last page:
 
 - `handoffAt` exists in the database but is **not** returned yet.
 - Times are UTC with milliseconds; convert to the device time zone for display.
+- `content` is never truncated by the backend. Our replies are at most 4096
+  characters; a customer message can be longer (WhatsApp allows it).
 - Use `ignoreUnknownKeys = true`: new fields may be added (for example with the
   AI work), never removed or renamed without notice. Unknown enum values should
   fall back to a safe default (`coerceInputValues`) instead of crashing.
@@ -339,6 +341,7 @@ The inbox uses the same `limit`/`offset` with the list already in display order.
 | Non-text message            | `messageType` is not `TEXT` (media is not stored yet)                     | Show a label such as "Photo" / "Voice message" |
 | Closed, then reopened       | `status=CLOSED`; a new customer message makes it `OPEN` again (same `id`) | Badge; refresh the inbox                       |
 | AI handed over to the owner | `aiEnabled=false`, `handoffReason` set (with the AI work)                 | "Needs your reply" badge                       |
+| Very long message           | Stored and returned unchanged, whatever its length                        | Show the full text; expand/collapse if needed  |
 | Same WhatsApp message twice | Stored once; the second delivery creates nothing                          | Nothing to do: no duplicates appear            |
 | Session expired             | `401 UNAUTHORIZED`                                                        | Refresh, then retry once                       |
 | Business not available      | `404 NOT_FOUND`                                                           | Do not refresh; back to business picker        |

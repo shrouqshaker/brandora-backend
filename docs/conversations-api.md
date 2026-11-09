@@ -205,7 +205,7 @@ required. Delete it with the webhook work.
 | `phone`             | Required, international number (see above)                     |
 | `name`              | Optional, max 200; blank is ignored; updates the stored name   |
 | `externalMessageId` | Optional, max 255; a repeat of a stored id is not stored again |
-| `content`           | Required, 1–4096 characters after trimming                     |
+| `content`           | Required, 1–4096 characters (code points) after trimming       |
 | `messageType`       | Optional, default `TEXT`                                       |
 
 Unknown fields (including `senderType`) are rejected with `400 VALIDATION_ERROR`.
@@ -229,6 +229,24 @@ Errors: `400 INVALID_PHONE_NUMBER`, `400 VALIDATION_ERROR`,
 `404 NOT_FOUND` (switch off, or not your business),
 `409 EXTERNAL_MESSAGE_ID_CONFLICT` (the id is stored under another business),
 `409 CONFLICT` (a concurrent change outlasted the retry; retry the request).
+
+## Message length
+
+`content` is counted in Unicode code points, the same count as Python's `len()`
+in the AI service: an Arabic letter or `😀` is 1, `👍🏽` (emoji + skin tone) is 2
+and `❤️` (heart + variation selector) is 2. The limits live in
+`src/messages/message-limits.ts`:
+
+- **4096:** Meta's limit for one text message sent through the Cloud API, so
+  every reply we send must fit it. The dev endpoint uses the same limit and
+  rejects longer `content` with `400 VALIDATION_ERROR`. Customer messages from
+  the WhatsApp webhook (next phase) are stored whatever their length, because
+  the customer's WhatsApp app allows longer texts.
+- **2000 (AI):** the AI service answers customer text up to this length. Longer
+  texts are still stored and shown, never cut, and are not sent to the AI
+  (`fitsAiLimit()`); with the AI work they go to the owner instead.
+
+Nothing is truncated silently.
 
 ## Database rollout and rollback
 

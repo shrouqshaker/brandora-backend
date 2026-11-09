@@ -712,7 +712,7 @@ test('6. delivery status only moves forward, in one query, inside one business',
   }
 });
 
-test('7. dev endpoint: strict body, and 404 when switched off or the database is not local', async () => {
+test('7. dev endpoint: strict body, length in code points, and 404 when switched off or the database is not local', async () => {
   const body = { phone: '201000000600', content: 'Hello' };
   for (const bad of [
     { ...body, senderType: 'AI' },
@@ -730,6 +730,33 @@ test('7. dev endpoint: strict body, and 404 when switched off or the database is
     (await inbound(bizA, { ...body, phone: '12ab' }, 400)).code,
     'INVALID_PHONE_NUMBER',
   );
+
+  // Length is counted in Unicode code points (see src/messages/message-limits.ts).
+  // Up to 4096 (Meta's limit for one text message) is stored exactly, never cut.
+  for (const content of [
+    'م'.repeat(4096),
+    '😀'.repeat(4096),
+    '👍🏽'.repeat(2048),
+    '❤️'.repeat(2048),
+  ]) {
+    const stored = await inbound(bizA, { ...body, content });
+    assert.equal(stored.message.content, content);
+    const row = (
+      await sql.query('SELECT content FROM "Message" WHERE id=$1', [
+        stored.message.id,
+      ])
+    ).rows[0];
+    assert.equal(row.content, content);
+  }
+  for (const content of [
+    'م'.repeat(4097),
+    '😀'.repeat(4097),
+    '❤️'.repeat(2049),
+  ])
+    assert.equal(
+      (await inbound(bizA, { ...body, content }, 400)).code,
+      'VALIDATION_ERROR',
+    );
 
   const realGet = config.get.bind(config);
   const pretend = (key, value) => {

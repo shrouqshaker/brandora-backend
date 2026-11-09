@@ -7,6 +7,10 @@ import {
   MaxLength,
 } from 'class-validator';
 import { MessageType } from '../../generated/prisma/client';
+import {
+  MaxCharacters,
+  MESSAGE_MAX_CHARACTERS,
+} from '../../messages/message-limits';
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
@@ -39,7 +43,7 @@ export class InboundMessageDto {
   @Transform(trim)
   @IsString()
   @IsNotEmpty()
-  @MaxLength(4096)
+  @MaxCharacters(MESSAGE_MAX_CHARACTERS)
   content!: string;
 
   @IsOptional()
