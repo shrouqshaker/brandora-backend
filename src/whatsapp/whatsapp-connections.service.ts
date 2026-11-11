@@ -65,6 +65,15 @@ export class WhatsAppConnectionsService {
     return connection?.isActive ? connection.businessId : null;
   }
 
+  /** Sender: "send from which number?" null = no active number for this business. */
+  async activePhoneNumberIdFor(businessId: string): Promise<string | null> {
+    const connection = await this.prisma.whatsAppConnection.findUnique({
+      where: { businessId },
+      select: { phoneNumberId: true, isActive: true },
+    });
+    return connection?.isActive ? connection.phoneNumberId : null;
+  }
+
   private inUse(): AppHttpException {
     return new AppHttpException(
       ErrorCode.WHATSAPP_PHONE_NUMBER_IN_USE,

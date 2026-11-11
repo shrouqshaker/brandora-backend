@@ -1,20 +1,14 @@
 import { Module } from '@nestjs/common';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { MessagesModule } from '../messages/messages.module';
-import { PrismaModule } from '../prisma/prisma.module';
 import { InboundWebhookService } from './inbound-webhook.service';
 import { WhatsAppConnectionController } from './whatsapp-connection.controller';
-import { WhatsAppConnectionsService } from './whatsapp-connections.service';
-import { WhatsAppSettings } from './whatsapp-settings';
+import { WhatsAppSenderModule } from './whatsapp-sender.module';
 import { WhatsAppWebhookController } from './whatsapp-webhook.controller';
 
 @Module({
-  imports: [PrismaModule, ConversationsModule, MessagesModule],
+  imports: [ConversationsModule, MessagesModule, WhatsAppSenderModule],
   controllers: [WhatsAppWebhookController, WhatsAppConnectionController],
-  providers: [
-    WhatsAppSettings,
-    WhatsAppConnectionsService,
-    InboundWebhookService,
-  ],
+  providers: [InboundWebhookService],
 })
 export class WhatsAppModule {}

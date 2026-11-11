@@ -4,6 +4,7 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
+  Logger,
   Post,
   Query,
   Req,
@@ -16,15 +17,19 @@ import { AppHttpException } from '../common/errors/app-http.exception';
 import { ErrorCode } from '../common/errors/error-code';
 import { sameSecret, WhatsAppSettings } from './whatsapp-settings';
 import { InboundWebhookService } from './inbound-webhook.service';
+import { WhatsAppSenderService } from './whatsapp-sender.service';
 import { isValidWhatsAppSignature } from './whatsapp-signature';
 
 /** Called by Meta, not by the mobile app. */
 @Controller('webhooks/whatsapp')
 @AuthScope('public') // Meta has no Brandora JWT; each handler checks Meta's own proof.
 export class WhatsAppWebhookController {
+  private readonly logger = new Logger(WhatsAppWebhookController.name);
+
   constructor(
     private readonly settings: WhatsAppSettings,
     private readonly inbound: InboundWebhookService,
+    private readonly sender: WhatsAppSenderService,
   ) {}
 
   /** Meta asks "is this URL yours?" once, when the webhook is saved. */
@@ -73,7 +78,21 @@ export class WhatsAppWebhookController {
         'Invalid webhook signature',
       );
     // Store first, answer second: a 200 means "it is safe in our database".
-    await this.inbound.store(req.body);
+    const stored = await this.inbound.store(req.body);
+    // Replies run in the background, after Meta has its 200.
+    // TEMPORARY test reply; Tab 3 replaces it with the AI's answer.
+    for (const m of stored)
+      void this.sender
+        .send({
+          businessId: m.businessId,
+          conversationId: m.conversationId,
+          senderType: 'AI',
+          content: 'وصلتنا رسالتك ✅',
+          aiMeta: { source: 'test' },
+        })
+        .catch((error: unknown) =>
+          this.logger.error('Reply failed', (error as Error).stack),
+        );
     return { received: true };
   }
 }

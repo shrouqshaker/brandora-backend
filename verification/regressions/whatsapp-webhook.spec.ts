@@ -6,6 +6,7 @@ import { createHmac } from 'node:crypto';
 import request from 'supertest';
 import { HttpExceptionFilter } from '../../src/common/errors/http-exception.filter';
 import { InboundWebhookService } from '../../src/whatsapp/inbound-webhook.service';
+import { WhatsAppSenderService } from '../../src/whatsapp/whatsapp-sender.service';
 import { WhatsAppSettings } from '../../src/whatsapp/whatsapp-settings';
 import { isValidWhatsAppSignature } from '../../src/whatsapp/whatsapp-signature';
 import { WhatsAppWebhookController } from '../../src/whatsapp/whatsapp-webhook.controller';
@@ -47,6 +48,7 @@ describe('WhatsApp webhook HTTP', () => {
       providers: [
         WhatsAppSettings,
         { provide: InboundWebhookService, useValue: { store: async () => [] } },
+        { provide: WhatsAppSenderService, useValue: {} },
         {
           provide: ConfigService,
           useValue: { get: (key: string) => env[key] },
