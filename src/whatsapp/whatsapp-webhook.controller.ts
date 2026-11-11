@@ -4,7 +4,6 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
-  Logger,
   Post,
   Query,
   Req,
@@ -16,16 +15,17 @@ import { AuthScope } from '../auth/auth-policy';
 import { AppHttpException } from '../common/errors/app-http.exception';
 import { ErrorCode } from '../common/errors/error-code';
 import { sameSecret, WhatsAppSettings } from './whatsapp-settings';
-import { parseWhatsAppWebhook } from './whatsapp-payload';
+import { InboundWebhookService } from './inbound-webhook.service';
 import { isValidWhatsAppSignature } from './whatsapp-signature';
 
 /** Called by Meta, not by the mobile app. */
 @Controller('webhooks/whatsapp')
 @AuthScope('public') // Meta has no Brandora JWT; each handler checks Meta's own proof.
 export class WhatsAppWebhookController {
-  private readonly logger = new Logger(WhatsAppWebhookController.name);
-
-  constructor(private readonly settings: WhatsAppSettings) {}
+  constructor(
+    private readonly settings: WhatsAppSettings,
+    private readonly inbound: InboundWebhookService,
+  ) {}
 
   /** Meta asks "is this URL yours?" once, when the webhook is saved. */
   @Get()
@@ -56,10 +56,10 @@ export class WhatsAppWebhookController {
   /** Every customer message and delivery report arrives here. */
   @Post()
   @HttpCode(HttpStatus.OK)
-  receive(
+  async receive(
     @Req() req: RawBodyRequest<Request>,
     @Headers('x-hub-signature-256') signature?: string,
-  ): { received: true } {
+  ): Promise<{ received: true }> {
     if (
       !isValidWhatsAppSignature(
         req.rawBody,
@@ -72,11 +72,8 @@ export class WhatsAppWebhookController {
         HttpStatus.UNAUTHORIZED,
         'Invalid webhook signature',
       );
-    // For now just show what arrived.
-    const { messages, statuses } = parseWhatsAppWebhook(req.body);
-    this.logger.log(
-      `Signed webhook: ${messages.length} message(s), ${statuses.length} status(es)`,
-    );
+    // Store first, answer second: a 200 means "it is safe in our database".
+    await this.inbound.store(req.body);
     return { received: true };
   }
 }

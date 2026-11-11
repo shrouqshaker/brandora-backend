@@ -5,12 +5,13 @@ import { Test } from '@nestjs/testing';
 import { createHmac } from 'node:crypto';
 import request from 'supertest';
 import { HttpExceptionFilter } from '../../src/common/errors/http-exception.filter';
+import { InboundWebhookService } from '../../src/whatsapp/inbound-webhook.service';
 import { WhatsAppSettings } from '../../src/whatsapp/whatsapp-settings';
 import { isValidWhatsAppSignature } from '../../src/whatsapp/whatsapp-signature';
 import { WhatsAppWebhookController } from '../../src/whatsapp/whatsapp-webhook.controller';
 
 // The webhook door only: Meta's two proofs and the on/off switch.
-// No database: storing messages is tested in whatsapp-inbound.spec.ts.
+// No database: storing is tested in verification/whatsapp-postgres.cjs.
 const SECRET = 'test-app-secret-0123456789';
 const VERIFY = 'test-verify-token-0123456789';
 const sign = (body: Buffer | string, secret = SECRET) =>
@@ -45,6 +46,7 @@ describe('WhatsApp webhook HTTP', () => {
       controllers: [WhatsAppWebhookController],
       providers: [
         WhatsAppSettings,
+        { provide: InboundWebhookService, useValue: { store: async () => [] } },
         {
           provide: ConfigService,
           useValue: { get: (key: string) => env[key] },
