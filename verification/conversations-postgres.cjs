@@ -885,38 +885,88 @@ test('9. seed refuses a remote database, works on the upgraded schema, and is sa
 });
 
 test('10. rollback: refused while customers exist, then back to main, then deployable again', async () => {
-  const rollback = fs.readFileSync(
-    path.join(root, 'prisma/maintenance/rollback-customers-conversations.sql'),
-    'utf8',
-  );
-  await assert.rejects(sql.query(rollback), /Refusing to roll back/);
-  assert.ok((await tableNames()).includes('Message'), 'nothing was dropped');
+  // Its own database with main + our migration only, so migrations added
+  // after ours (WhatsApp, orders...) never change what this test proves.
+  const rbName = database + '_rb';
+  const rbUrl = urlFor(rbName);
+  await admin.query(`CREATE DATABASE "${rbName}"`);
+  const rb = new Client({ connectionString: rbUrl });
+  await rb.connect();
+  const at = (...args) => {
+    const r = spawnSync(
+      process.execPath,
+      ['node_modules/prisma/build/index.js', ...args],
+      {
+        cwd: root,
+        env: { ...process.env, DATABASE_URL: rbUrl },
+        encoding: 'utf8',
+        timeout: 120000,
+      },
+    );
+    return r;
+  };
+  const names = async (query) =>
+    (await rb.query(query)).rows.map((r) => r.n).sort();
+  const tables = () =>
+    names(
+      "SELECT table_name AS n FROM information_schema.tables WHERE table_schema='public' AND table_name <> '_prisma_migrations'",
+    );
+  const types = () =>
+    names(
+      "SELECT t.typname AS n FROM pg_type t JOIN pg_namespace s ON s.oid=t.typnamespace WHERE s.nspname='public' AND t.typtype='e'",
+    );
+  try {
+    for (const name of migrations.filter((n) => n < ours)) {
+      await rb.query(readMigration(name));
+      assert.equal(at('migrate', 'resolve', '--applied', name).status, 0);
+    }
+    const mainOnly = { tables: await tables(), types: await types() };
+    await rb.query(readMigration(ours));
+    assert.equal(at('migrate', 'resolve', '--applied', ours).status, 0);
+    const business = randomUUID();
+    await rb.query(
+      'INSERT INTO "Business" (id,name,"updatedAt") VALUES ($1,\'Existing store\',now())',
+      [business],
+    );
+    await rb.query(
+      'INSERT INTO "Customer" (id,"businessId",phone,"updatedAt") VALUES ($1,$2,\'201000000999\',now())',
+      [randomUUID(), business],
+    );
 
-  // Only test rows exist in this database, so they may go.
-  await sql.query('DELETE FROM "Message"');
-  await sql.query('DELETE FROM "Conversation"');
-  await sql.query('DELETE FROM "Customer"');
-  await sql.query(rollback);
-  assert.deepEqual(await tableNames(), mainTables);
-  assert.deepEqual(await enumNames(), mainTypes);
-  for (const [table, rows] of Object.entries(oldRows))
-    for (const row of rows)
-      assert.deepEqual(
-        (await sql.query(`SELECT * FROM "${table}" WHERE id=$1`, [row.id]))
-          .rows,
-        [row],
-        `${table} ${row.id} unchanged`,
-      );
-  const pending = prismaRaw('migrate', 'status');
-  assert.notEqual(pending.status, 0);
-  assert.match(pending.stdout + pending.stderr, new RegExp(ours));
+    const rollback = fs.readFileSync(
+      path.join(
+        root,
+        'prisma/maintenance/rollback-customers-conversations.sql',
+      ),
+      'utf8',
+    );
+    await assert.rejects(rb.query(rollback), /Refusing to roll back/);
+    assert.ok((await tables()).includes('Message'), 'nothing was dropped');
 
-  // Running it twice is harmless, and the migration can be deployed again.
-  await sql.query(rollback);
-  prisma('migrate', 'deploy');
-  assert.match(prisma('migrate', 'status'), /up to date/);
-  assert.ok((await tableNames()).includes('Message'));
-});
+    // Only test rows exist in this database, so they may go.
+    await rb.query('DELETE FROM "Customer"');
+    await rb.query(rollback);
+    assert.deepEqual(await tables(), mainOnly.tables);
+    assert.deepEqual(await types(), mainOnly.types);
+    assert.equal(
+      (await rb.query('SELECT name FROM "Business" WHERE id=$1', [business]))
+        .rows[0].name,
+      'Existing store',
+    );
+    const pending = at('migrate', 'status');
+    assert.notEqual(pending.status, 0);
+    assert.match(pending.stdout + pending.stderr, new RegExp(ours));
+
+    // Running it twice is harmless, and everything can be deployed again.
+    await rb.query(rollback);
+    assert.equal(at('migrate', 'deploy').status, 0);
+    assert.match(at('migrate', 'status').stdout, /up to date/);
+    assert.ok((await tables()).includes('Message'));
+  } finally {
+    await rb.end();
+    await admin.query(`DROP DATABASE IF EXISTS "${rbName}"`);
+  }
+  });
 
 after(async () => {
   if (app) await app.close();
