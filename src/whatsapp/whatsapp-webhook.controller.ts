@@ -16,6 +16,7 @@ import { AuthScope } from '../auth/auth-policy';
 import { AppHttpException } from '../common/errors/app-http.exception';
 import { ErrorCode } from '../common/errors/error-code';
 import { sameSecret, WhatsAppSettings } from './whatsapp-settings';
+import { parseWhatsAppWebhook } from './whatsapp-payload';
 import { isValidWhatsAppSignature } from './whatsapp-signature';
 
 /** Called by Meta, not by the mobile app. */
@@ -71,8 +72,11 @@ export class WhatsAppWebhookController {
         HttpStatus.UNAUTHORIZED,
         'Invalid webhook signature',
       );
-    // For now just show that it arrived.
-    this.logger.log('Signed webhook received');
+    // For now just show what arrived.
+    const { messages, statuses } = parseWhatsAppWebhook(req.body);
+    this.logger.log(
+      `Signed webhook: ${messages.length} message(s), ${statuses.length} status(es)`,
+    );
     return { received: true };
   }
 }
