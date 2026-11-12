@@ -58,5 +58,6 @@ See [image setup](docs/product-images.md).
 - [Business API](docs/business-api.md)
 - [Products and variants](docs/products-api.md)
 - [Inventory](docs/inventory-api.md) / [Excel imports](docs/imports-api.md)
+- [WhatsApp webhook and sending](docs/whatsapp-api.md)
 - [Railway proxy security](docs/railway-proxy-security.md)
 - [Shared error contract](docs/api-errors.md)
