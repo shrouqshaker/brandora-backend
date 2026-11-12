@@ -199,43 +199,18 @@ new message (who sends and when is decided with the WhatsApp work).
 
 Errors: same as Conversations.
 
-## Dev inbound message (temporary, local only)
+## Test messages without Meta (local only)
 
-`POST /businesses/:businessId/dev/inbound-message` simulates a WhatsApp message
-until the webhook exists. It answers `404 NOT_FOUND` unless
-`ENABLE_DEV_ENDPOINTS=true` **and** `DATABASE_URL` points at localhost, so it
-stays off on any server even if the flag is set by mistake. Owner token
-required. Delete it with the webhook work.
+The temporary `POST /businesses/:businessId/dev/inbound-message` endpoint was
+removed with the WhatsApp work; customer messages now arrive only through the
+signed webhook (`POST /webhooks/whatsapp`, see [whatsapp-api.md](whatsapp-api.md)).
+To try it on a laptop, link the business to a number, then send a webhook signed
+with your local `WHATSAPP_APP_SECRET`:
 
-| Body field          | Rules                                                          |
-| ------------------- | -------------------------------------------------------------- |
-| `phone`             | Required, international number (see above)                     |
-| `name`              | Optional, max 200; blank is ignored; updates the stored name   |
-| `externalMessageId` | Optional, max 255; a repeat of a stored id is not stored again |
-| `content`           | Required, 1–4096 characters (code points) after trimming       |
-| `messageType`       | Optional, default `TEXT`                                       |
-
-Unknown fields (including `senderType`) are rejected with `400 VALIDATION_ERROR`.
-
-```json
-{
-  "phone": "+20 100 000 0001",
-  "name": "Mona",
-  "externalMessageId": "wamid.HBgMMjAxMDAwMDAwMDAxFQIAEhgg",
-  "content": "السلام عليكم، عندكم تيشيرت أسود مقاس L؟"
-}
+```bash
+node verification/tools/send-whatsapp-webhook.cjs "السلام عليكم"            # a new message
+node verification/tools/send-whatsapp-webhook.cjs "مرحبا" wamid.test-1      # send twice: stored once
 ```
-
-Answers **201** with `{ "duplicate": false, "customer", "conversation", "message" }`
-when the message was stored, and **200** with `"duplicate": true` (nothing
-written, the stored records returned) when `externalMessageId` was already
-stored. Both are success: the future webhook must treat both as "done".
-Concurrent requests with the same id store exactly one message.
-
-Errors: `400 INVALID_PHONE_NUMBER`, `400 VALIDATION_ERROR`,
-`404 NOT_FOUND` (switch off, or not your business),
-`409 EXTERNAL_MESSAGE_ID_CONFLICT` (the id is stored under another business),
-`409 CONFLICT` (a concurrent change outlasted the retry; retry the request).
 
 ## Message length
 
@@ -245,10 +220,9 @@ and `❤️` (heart + variation selector) is 2. The limits live in
 `src/messages/message-limits.ts`:
 
 - **4096:** Meta's limit for one text message sent through the Cloud API, so
-  every reply we send must fit it. The dev endpoint uses the same limit and
-  rejects longer `content` with `400 VALIDATION_ERROR`. Customer messages from
-  the WhatsApp webhook (next phase) are stored whatever their length, because
-  the customer's WhatsApp app allows longer texts.
+  every reply we send must fit it. Customer messages from the WhatsApp webhook
+  are stored whatever their length, because the customer's WhatsApp app allows
+  longer texts.
 - **2000 (AI):** the AI service answers customer text up to this length. Longer
   texts are still stored and shown, never cut, and are not sent to the AI
   (`fitsAiLimit()`); with the AI work they go to the owner instead.
@@ -281,7 +255,7 @@ database matches main again with the old rows untouched, and deploys again.
 ```bash
 npx prisma migrate dev          # applies 20261107094154_add_customers_conversations
 npx prisma db seed              # 2 businesses, 5 customers, 12 messages (localhost only, safe to repeat)
-ENABLE_DEV_ENDPOINTS=true npm run start:dev
+npm run start:dev
 ```
 
 Seed business A is `a0000000-0000-4000-8000-000000000001` (4 customers, Arabic
@@ -298,6 +272,6 @@ on a new random database on a localhost PostgreSQL server and deletes it
 afterwards. It upgrades from the main schema with Prisma, checks drift, tenant
 keys, two-owner isolation over real JWT HTTP, idempotency and races, time
 ordering (including AI/owner replies), delivery status and send-result rules,
-validation and length in code points, the seed guard and the rollback.
+length in code points, the seed guard and the rollback.
 `npm test` also runs `regressions/message-limits.spec.ts` and
 `regressions/message-conflicts.spec.ts` (no database).

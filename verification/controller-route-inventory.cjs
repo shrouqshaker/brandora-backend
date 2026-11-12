@@ -105,7 +105,7 @@ function verifyControllerInventory(routes = controllerRoutes()) {
   );
   assert.equal(
     routes.length,
-    59,
+    58,
     'Review the policy and endpoint inventory when adding routes',
   );
   const publicCount = routes.filter(
