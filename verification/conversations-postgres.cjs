@@ -1,4 +1,6 @@
 // Customers, conversations and messages against REAL PostgreSQL and REAL HTTP.
+// Messages are stored with ConversationsService.ingestInboundMessage, the same
+// function the WhatsApp webhook calls (the old dev endpoint is gone).
 //
 //   npm run test:conversations:postgres
 //
@@ -57,7 +59,7 @@ const remoteUrl =
   'postgresql://user:password@ep-example-123.eu-central-1.aws.neon.tech/neondb?sslmode=require';
 const admin = new Client({ connectionString: urlFor('postgres') });
 
-let sql, app, http, config, messages, ownerA, ownerB, bizA, bizB;
+let sql, app, http, messages, conversations, ownerA, ownerB, bizA, bizB;
 let mainTables, mainTypes, oldRows;
 let httpChecks = 0;
 
@@ -101,12 +103,27 @@ async function call(method, route, { body, status = 200, as = ownerA } = {}) {
   );
   return res.body;
 }
-const inbound = (businessId, body, status = 201, as = ownerA) =>
-  call('post', `/businesses/${businessId}/dev/inbound-message`, {
-    body,
-    status,
-    as,
-  });
+// Like the old dev endpoint's answers: 201 stored now, 200 already stored,
+// or the AppHttpException status (400, 404, 409) with its body.
+async function inbound(businessId, body, status = 201) {
+  let got;
+  try {
+    const result = await conversations.ingestInboundMessage({
+      businessId,
+      ...body,
+    });
+    // JSON round trip: dates become strings, exactly like an HTTP answer.
+    got = {
+      status: result.duplicate ? 200 : 201,
+      body: JSON.parse(JSON.stringify(result)),
+    };
+  } catch (error) {
+    if (typeof error?.getStatus !== 'function') throw error;
+    got = { status: error.getStatus(), body: error.getResponse() };
+  }
+  assert.equal(got.status, status, JSON.stringify(got.body));
+  return got.body;
+}
 const wamid = (label) => `wamid.test-${label}-${randomUUID()}`;
 const count = async (query, params = []) =>
   (await sql.query(query, params)).rows[0].n;
@@ -184,7 +201,6 @@ before(
     // 4) The real application on the new database.
     Object.assign(process.env, {
       DATABASE_URL: url,
-      ENABLE_DEV_ENDPOINTS: 'true',
       JWT_SECRET: randomBytes(48).toString('base64'),
       AUTH_RATE_LIMIT_SECRET: randomBytes(48).toString('base64'),
       JWT_ISSUER: 'conversations-test',
@@ -197,9 +213,11 @@ before(
     const { Test } = require('@nestjs/testing');
     const { ValidationPipe } = require('@nestjs/common');
     const { HttpAdapterHost } = require('@nestjs/core');
-    const { ConfigService } = require('@nestjs/config');
     const { AppModule } = require('../dist/app.module');
     const { MessagesService } = require('../dist/messages/messages.service');
+    const {
+      ConversationsService,
+    } = require('../dist/conversations/conversations.service');
     const {
       HttpExceptionFilter,
     } = require('../dist/common/errors/http-exception.filter');
@@ -219,8 +237,8 @@ before(
     // Listening once lets parallel requests share one real local port.
     await app.listen(0, '127.0.0.1');
     http = request(app.getHttpServer());
-    config = app.get(ConfigService);
     messages = app.get(MessagesService);
+    conversations = app.get(ConversationsService);
 
     const register = async (email) =>
       (
@@ -377,20 +395,28 @@ test('3. racing requests: one message per wamid, one customer and one conversati
   const id = wamid('race');
   const results = await Promise.all(
     Array.from({ length: 10 }, () =>
-      http
-        .post(`/businesses/${bizA}/dev/inbound-message`)
-        .set('Authorization', 'Bearer ' + ownerA)
-        .send({ phone: '201000000200', externalMessageId: id, content: 'Hi' }),
+      conversations.ingestInboundMessage({
+        businessId: bizA,
+        phone: '201000000200',
+        externalMessageId: id,
+        content: 'Hi',
+      }),
     ),
   );
-  httpChecks += results.length;
-  const statuses = results.map((r) => r.status).sort();
-  assert.deepEqual(
-    statuses,
-    [200, 200, 200, 200, 200, 200, 200, 200, 200, 201],
-  );
+  assert.deepEqual(results.map((r) => r.duplicate).sort(), [
+    false,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+  ]);
   assert.equal(
-    new Set(results.map((r) => r.body.message.id)).size,
+    new Set(results.map((r) => r.message.id)).size,
     1,
     'every answer points at the same stored message',
   );
@@ -404,20 +430,17 @@ test('3. racing requests: one message per wamid, one customer and one conversati
 
   const burst = await Promise.all(
     Array.from({ length: 8 }, (_, i) =>
-      http
-        .post(`/businesses/${bizA}/dev/inbound-message`)
-        .set('Authorization', 'Bearer ' + ownerA)
-        .send({
-          phone: '201000000201',
-          externalMessageId: wamid(`burst-${i}`),
-          content: `Message ${i}`,
-        }),
+      conversations.ingestInboundMessage({
+        businessId: bizA,
+        phone: '201000000201',
+        externalMessageId: wamid(`burst-${i}`),
+        content: `Message ${i}`,
+      }),
     ),
   );
-  httpChecks += burst.length;
   assert.deepEqual(
-    burst.map((r) => r.status),
-    Array(8).fill(201),
+    burst.map((r) => r.duplicate),
+    Array(8).fill(false),
   );
   const ids = (
     await sql.query(
@@ -447,8 +470,6 @@ test('4. owners only reach their own business: other owner, foreign ids, no toke
     await call('get', route, { status: 404, as: ownerB });
     await call('get', route, { status: 401, as: null });
   }
-  await inbound(bizA, { phone: '201000000300', content: 'x' }, 404, ownerB);
-  await inbound(bizA, { phone: '201000000300', content: 'x' }, 401, null);
 
   // Business A's ids under business B's own path are simply "not found".
   assert.equal(
@@ -720,32 +741,25 @@ test('6. delivery status only moves forward, in one query, inside one business',
   }
 });
 
-test('7. dev endpoint: strict body, length in code points, and 404 when switched off or the database is not local', async () => {
+test('7. the old dev endpoint is gone, bad numbers are refused, long customer texts are stored whole', async () => {
+  // Deleted with the WhatsApp work: the route does not exist any more.
+  await call('post', `/businesses/${bizA}/dev/inbound-message`, {
+    body: { phone: '201000000600', content: 'Hello' },
+    status: 404,
+  });
+
   const body = { phone: '201000000600', content: 'Hello' };
-  for (const bad of [
-    { ...body, senderType: 'AI' },
-    { ...body, content: '   ' },
-    { ...body, messageType: 'STICKER' },
-    { ...body, content: 'x'.repeat(4097) },
-    { phone: '201000000600' },
-  ])
-    assert.equal(
-      (await inbound(bizA, bad, 400)).code,
-      'VALIDATION_ERROR',
-      JSON.stringify(bad),
-    );
   assert.equal(
     (await inbound(bizA, { ...body, phone: '12ab' }, 400)).code,
     'INVALID_PHONE_NUMBER',
   );
 
   // Length is counted in Unicode code points (see src/messages/message-limits.ts).
-  // Up to 4096 (Meta's limit for one text message) is stored exactly, never cut.
+  // A customer may send more than 4096 on WhatsApp: it is stored exactly, never cut.
   for (const content of [
     'م'.repeat(4096),
-    '😀'.repeat(4096),
-    '👍🏽'.repeat(2048),
-    '❤️'.repeat(2048),
+    '😀'.repeat(4097),
+    '❤️'.repeat(3000),
   ]) {
     const stored = await inbound(bizA, { ...body, content });
     assert.equal(stored.message.content, content);
@@ -756,29 +770,6 @@ test('7. dev endpoint: strict body, length in code points, and 404 when switched
     ).rows[0];
     assert.equal(row.content, content);
   }
-  for (const content of [
-    'م'.repeat(4097),
-    '😀'.repeat(4097),
-    '❤️'.repeat(2049),
-  ])
-    assert.equal(
-      (await inbound(bizA, { ...body, content }, 400)).code,
-      'VALIDATION_ERROR',
-    );
-
-  const realGet = config.get.bind(config);
-  const pretend = (key, value) => {
-    config.get = (k, ...rest) => (k === key ? value : realGet(k, ...rest));
-  };
-  try {
-    pretend('ENABLE_DEV_ENDPOINTS', 'false');
-    assert.equal((await inbound(bizA, body, 404)).code, 'NOT_FOUND');
-    pretend('DATABASE_URL', remoteUrl);
-    assert.equal((await inbound(bizA, body, 404)).code, 'NOT_FOUND');
-  } finally {
-    config.get = realGet;
-  }
-  await inbound(bizA, body, 201);
 });
 
 test('8. pages: newest messages first, closed chats reopen, single conversation shape', async () => {
@@ -885,37 +876,87 @@ test('9. seed refuses a remote database, works on the upgraded schema, and is sa
 });
 
 test('10. rollback: refused while customers exist, then back to main, then deployable again', async () => {
-  const rollback = fs.readFileSync(
-    path.join(root, 'prisma/maintenance/rollback-customers-conversations.sql'),
-    'utf8',
-  );
-  await assert.rejects(sql.query(rollback), /Refusing to roll back/);
-  assert.ok((await tableNames()).includes('Message'), 'nothing was dropped');
+  // Its own database with main + our migration only, so migrations added
+  // after ours (WhatsApp, orders...) never change what this test proves.
+  const rbName = database + '_rb';
+  const rbUrl = urlFor(rbName);
+  await admin.query(`CREATE DATABASE "${rbName}"`);
+  const rb = new Client({ connectionString: rbUrl });
+  await rb.connect();
+  const at = (...args) => {
+    const r = spawnSync(
+      process.execPath,
+      ['node_modules/prisma/build/index.js', ...args],
+      {
+        cwd: root,
+        env: { ...process.env, DATABASE_URL: rbUrl },
+        encoding: 'utf8',
+        timeout: 120000,
+      },
+    );
+    return r;
+  };
+  const names = async (query) =>
+    (await rb.query(query)).rows.map((r) => r.n).sort();
+  const tables = () =>
+    names(
+      "SELECT table_name AS n FROM information_schema.tables WHERE table_schema='public' AND table_name <> '_prisma_migrations'",
+    );
+  const types = () =>
+    names(
+      "SELECT t.typname AS n FROM pg_type t JOIN pg_namespace s ON s.oid=t.typnamespace WHERE s.nspname='public' AND t.typtype='e'",
+    );
+  try {
+    for (const name of migrations.filter((n) => n < ours)) {
+      await rb.query(readMigration(name));
+      assert.equal(at('migrate', 'resolve', '--applied', name).status, 0);
+    }
+    const mainOnly = { tables: await tables(), types: await types() };
+    await rb.query(readMigration(ours));
+    assert.equal(at('migrate', 'resolve', '--applied', ours).status, 0);
+    const business = randomUUID();
+    await rb.query(
+      'INSERT INTO "Business" (id,name,"updatedAt") VALUES ($1,\'Existing store\',now())',
+      [business],
+    );
+    await rb.query(
+      'INSERT INTO "Customer" (id,"businessId",phone,"updatedAt") VALUES ($1,$2,\'201000000999\',now())',
+      [randomUUID(), business],
+    );
 
-  // Only test rows exist in this database, so they may go.
-  await sql.query('DELETE FROM "Message"');
-  await sql.query('DELETE FROM "Conversation"');
-  await sql.query('DELETE FROM "Customer"');
-  await sql.query(rollback);
-  assert.deepEqual(await tableNames(), mainTables);
-  assert.deepEqual(await enumNames(), mainTypes);
-  for (const [table, rows] of Object.entries(oldRows))
-    for (const row of rows)
-      assert.deepEqual(
-        (await sql.query(`SELECT * FROM "${table}" WHERE id=$1`, [row.id]))
-          .rows,
-        [row],
-        `${table} ${row.id} unchanged`,
-      );
-  const pending = prismaRaw('migrate', 'status');
-  assert.notEqual(pending.status, 0);
-  assert.match(pending.stdout + pending.stderr, new RegExp(ours));
+    const rollback = fs.readFileSync(
+      path.join(
+        root,
+        'prisma/maintenance/rollback-customers-conversations.sql',
+      ),
+      'utf8',
+    );
+    await assert.rejects(rb.query(rollback), /Refusing to roll back/);
+    assert.ok((await tables()).includes('Message'), 'nothing was dropped');
 
-  // Running it twice is harmless, and the migration can be deployed again.
-  await sql.query(rollback);
-  prisma('migrate', 'deploy');
-  assert.match(prisma('migrate', 'status'), /up to date/);
-  assert.ok((await tableNames()).includes('Message'));
+    // Only test rows exist in this database, so they may go.
+    await rb.query('DELETE FROM "Customer"');
+    await rb.query(rollback);
+    assert.deepEqual(await tables(), mainOnly.tables);
+    assert.deepEqual(await types(), mainOnly.types);
+    assert.equal(
+      (await rb.query('SELECT name FROM "Business" WHERE id=$1', [business]))
+        .rows[0].name,
+      'Existing store',
+    );
+    const pending = at('migrate', 'status');
+    assert.notEqual(pending.status, 0);
+    assert.match(pending.stdout + pending.stderr, new RegExp(ours));
+
+    // Running it twice is harmless, and everything can be deployed again.
+    await rb.query(rollback);
+    assert.equal(at('migrate', 'deploy').status, 0);
+    assert.match(at('migrate', 'status').stdout, /up to date/);
+    assert.ok((await tables()).includes('Message'));
+  } finally {
+    await rb.end();
+    await admin.query(`DROP DATABASE IF EXISTS "${rbName}"`);
+  }
 });
 
 after(async () => {

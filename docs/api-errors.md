@@ -57,6 +57,11 @@ Excel upload limit. Multiple messages share a code when their semantics match.
 | externalMessageId already belongs to another business                                                            | `EXTERNAL_MESSAGE_ID_CONFLICT`       |
 | externalMessageId already belongs to another message                                                             | `EXTERNAL_MESSAGE_ID_CONFLICT`       |
 | The message could not be stored because of a concurrent change; retry the request                                | `CONFLICT`                           |
+| WhatsApp integration is not available                                                                            | `WHATSAPP_UNAVAILABLE`               |
+| Webhook verification failed                                                                                      | `WHATSAPP_VERIFY_TOKEN_INVALID`      |
+| Invalid webhook signature                                                                                        | `WHATSAPP_SIGNATURE_INVALID`         |
+| This WhatsApp number is already linked to another business                                                       | `WHATSAPP_PHONE_NUMBER_IN_USE`       |
+| This business has no WhatsApp number yet                                                                         | `WHATSAPP_CONNECTION_NOT_FOUND`      |
 | Stock changed concurrently; retry the operation                                                                  | `INVENTORY_CONFLICT`                 |
 
 Variant inventory adds `409 INVENTORY_INACTIVE` for stock writes/sales on inactive

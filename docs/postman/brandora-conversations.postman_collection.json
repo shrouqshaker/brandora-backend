@@ -2,7 +2,7 @@
   "info": {
     "name": "Brandora — Customers & Conversations",
     "_postman_id": "6b1f3f0e-7c2a-4d51-9b8e-2f6c1c9a0d11",
-    "description": "Owner APIs for customers, conversations and messages (backend commit dbda218, PR #1). Run Auth → Login, then Business → Pick first business. Examples were captured from the real application on a disposable local database. No real tokens or secrets are stored here.",
+    "description": "Owner APIs for customers, conversations and messages (customers, conversations and the WhatsApp number). Run Auth → Login, then Business → Pick first business. Examples were captured from the real application on a disposable local database. No real tokens or secrets are stored here.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -65,13 +65,8 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/auth/register",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "auth",
-                "register"
-              ]
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
             },
             "body": {
               "mode": "raw",
@@ -117,13 +112,8 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/auth/login",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "auth",
-                "login"
-              ]
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
             },
             "body": {
               "mode": "raw",
@@ -174,12 +164,8 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/businesses",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "businesses"
-              ]
+              "host": ["{{baseUrl}}"],
+              "path": ["businesses"]
             },
             "body": {
               "mode": "raw",
@@ -218,13 +204,8 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/auth/me",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "auth",
-                "me"
-              ]
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "me"]
             },
             "description": "Saves the first business you own. Change businessId by hand to use another."
           },
@@ -259,14 +240,8 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/businesses/{{businessId}}/customers?limit=20&offset=0",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "businesses",
-                "{{businessId}}",
-                "customers"
-              ],
+              "host": ["{{baseUrl}}"],
+              "path": ["businesses", "{{businessId}}", "customers"],
               "query": [
                 {
                   "key": "limit",
@@ -293,14 +268,8 @@
                 ],
                 "url": {
                   "raw": "{{baseUrl}}/businesses/{{businessId}}/customers?limit=20&offset=0",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "businesses",
-                    "{{businessId}}",
-                    "customers"
-                  ],
+                  "host": ["{{baseUrl}}"],
+                  "path": ["businesses", "{{businessId}}", "customers"],
                   "query": [
                     {
                       "key": "limit",
@@ -336,14 +305,8 @@
                 ],
                 "url": {
                   "raw": "{{baseUrl}}/businesses/{{businessId}}/customers?limit=20&offset=0",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "businesses",
-                    "{{businessId}}",
-                    "customers"
-                  ],
+                  "host": ["{{baseUrl}}"],
+                  "path": ["businesses", "{{businessId}}", "customers"],
                   "query": [
                     {
                       "key": "limit",
@@ -379,14 +342,8 @@
                 ],
                 "url": {
                   "raw": "{{baseUrl}}/businesses/{{businessId}}/customers?limit=20&offset=0",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "businesses",
-                    "{{businessId}}",
-                    "customers"
-                  ],
+                  "host": ["{{baseUrl}}"],
+                  "path": ["businesses", "{{businessId}}", "customers"],
                   "query": [
                     {
                       "key": "limit",
@@ -437,9 +394,7 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/businesses/{{businessId}}/customers/{{customerId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
+              "host": ["{{baseUrl}}"],
               "path": [
                 "businesses",
                 "{{businessId}}",
@@ -462,9 +417,7 @@
                 ],
                 "url": {
                   "raw": "{{baseUrl}}/businesses/{{businessId}}/customers/{{customerId}}",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
+                  "host": ["{{baseUrl}}"],
                   "path": [
                     "businesses",
                     "{{businessId}}",
@@ -496,9 +449,7 @@
                 ],
                 "url": {
                   "raw": "{{baseUrl}}/businesses/{{businessId}}/customers/{{customerId}}",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
+                  "host": ["{{baseUrl}}"],
                   "path": [
                     "businesses",
                     "{{businessId}}",
@@ -543,14 +494,8 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/businesses/{{businessId}}/conversations?limit=20&offset=0",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "businesses",
-                "{{businessId}}",
-                "conversations"
-              ],
+              "host": ["{{baseUrl}}"],
+              "path": ["businesses", "{{businessId}}", "conversations"],
               "query": [
                 {
                   "key": "limit",
@@ -577,14 +522,8 @@
                 ],
                 "url": {
                   "raw": "{{baseUrl}}/businesses/{{businessId}}/conversations?limit=20&offset=0",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "businesses",
-                    "{{businessId}}",
-                    "conversations"
-                  ],
+                  "host": ["{{baseUrl}}"],
+                  "path": ["businesses", "{{businessId}}", "conversations"],
                   "query": [
                     {
                       "key": "limit",
@@ -620,14 +559,8 @@
                 ],
                 "url": {
                   "raw": "{{baseUrl}}/businesses/{{businessId}}/conversations?status=CLOSED",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "businesses",
-                    "{{businessId}}",
-                    "conversations"
-                  ],
+                  "host": ["{{baseUrl}}"],
+                  "path": ["businesses", "{{businessId}}", "conversations"],
                   "query": [
                     {
                       "key": "status",
@@ -659,14 +592,8 @@
                 ],
                 "url": {
                   "raw": "{{baseUrl}}/businesses/{{businessId}}/conversations?limit=20&offset=0",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "businesses",
-                    "{{businessId}}",
-                    "conversations"
-                  ],
+                  "host": ["{{baseUrl}}"],
+                  "path": ["businesses", "{{businessId}}", "conversations"],
                   "query": [
                     {
                       "key": "limit",
@@ -702,14 +629,8 @@
                 ],
                 "url": {
                   "raw": "{{baseUrl}}/businesses/{{businessId}}/conversations?status=PAUSED",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "businesses",
-                    "{{businessId}}",
-                    "conversations"
-                  ],
+                  "host": ["{{baseUrl}}"],
+                  "path": ["businesses", "{{businessId}}", "conversations"],
                   "query": [
                     {
                       "key": "status",
@@ -741,14 +662,8 @@
                 ],
                 "url": {
                   "raw": "{{baseUrl}}/businesses/{{businessId}}/conversations?limit=101",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "businesses",
-                    "{{businessId}}",
-                    "conversations"
-                  ],
+                  "host": ["{{baseUrl}}"],
+                  "path": ["businesses", "{{businessId}}", "conversations"],
                   "query": [
                     {
                       "key": "limit",
@@ -780,14 +695,8 @@
                 ],
                 "url": {
                   "raw": "{{baseUrl}}/businesses/{{businessId}}/conversations?limit=20&offset=0",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "businesses",
-                    "{{businessId}}",
-                    "conversations"
-                  ],
+                  "host": ["{{baseUrl}}"],
+                  "path": ["businesses", "{{businessId}}", "conversations"],
                   "query": [
                     {
                       "key": "limit",
@@ -820,7 +729,7 @@
                 "exec": [
                   "const save = (k, v) => { pm.collectionVariables.set(k, v); if (pm.environment.name) pm.environment.set(k, v); };",
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "if (pm.response.code === 200 && pm.response.json().items.length) save('conversationId', pm.response.json().items[0].id);"
+                  "if (pm.response.code === 200 && pm.response.json().items.length) { const first = pm.response.json().items[0]; save('conversationId', first.id); save('customerId', first.customerId); }"
                 ]
               }
             }
@@ -838,9 +747,7 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/businesses/{{businessId}}/conversations/{{conversationId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
+              "host": ["{{baseUrl}}"],
               "path": [
                 "businesses",
                 "{{businessId}}",
@@ -863,9 +770,7 @@
                 ],
                 "url": {
                   "raw": "{{baseUrl}}/businesses/{{businessId}}/conversations/{{conversationId}}",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
+                  "host": ["{{baseUrl}}"],
                   "path": [
                     "businesses",
                     "{{businessId}}",
@@ -897,9 +802,7 @@
                 ],
                 "url": {
                   "raw": "{{baseUrl}}/businesses/{{businessId}}/conversations/{{conversationId}}",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
+                  "host": ["{{baseUrl}}"],
                   "path": [
                     "businesses",
                     "{{businessId}}",
@@ -931,9 +834,7 @@
                 ],
                 "url": {
                   "raw": "{{baseUrl}}/businesses/{{businessId}}/conversations/{{conversationId}}",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
+                  "host": ["{{baseUrl}}"],
                   "path": [
                     "businesses",
                     "{{businessId}}",
@@ -978,9 +879,7 @@
             ],
             "url": {
               "raw": "{{baseUrl}}/businesses/{{businessId}}/conversations/{{conversationId}}/messages?limit=20&offset=0",
-              "host": [
-                "{{baseUrl}}"
-              ],
+              "host": ["{{baseUrl}}"],
               "path": [
                 "businesses",
                 "{{businessId}}",
@@ -1014,9 +913,7 @@
                 ],
                 "url": {
                   "raw": "{{baseUrl}}/businesses/{{businessId}}/conversations/{{conversationId}}/messages?limit=2&offset=0",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
+                  "host": ["{{baseUrl}}"],
                   "path": [
                     "businesses",
                     "{{businessId}}",
@@ -1059,9 +956,7 @@
                 ],
                 "url": {
                   "raw": "{{baseUrl}}/businesses/{{businessId}}/conversations/{{conversationId}}/messages?limit=2&offset=2",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
+                  "host": ["{{baseUrl}}"],
                   "path": [
                     "businesses",
                     "{{businessId}}",
@@ -1104,9 +999,7 @@
                 ],
                 "url": {
                   "raw": "{{baseUrl}}/businesses/{{businessId}}/conversations/{{conversationId}}/messages?limit=20&offset=0",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
+                  "host": ["{{baseUrl}}"],
                   "path": [
                     "businesses",
                     "{{businessId}}",
@@ -1153,17 +1046,17 @@
       ]
     },
     {
-      "name": "Dev only (local test data)",
-      "description": "Not for Android. Simulates customer WhatsApp messages on a local backend.",
+      "name": "WhatsApp number (owner settings)",
+      "description": "Links the business to its WhatsApp number at Meta (WhatsApp > API Setup > Phone number ID). Customer messages then arrive through the webhook, not through Postman.",
       "item": [
         {
-          "name": "Customer sends a message (fake WhatsApp)",
+          "name": "Link WhatsApp number",
           "request": {
-            "method": "POST",
+            "method": "PUT",
             "header": [
               {
-                "key": "Accept",
-                "value": "application/json"
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
               },
               {
                 "key": "Content-Type",
@@ -1171,321 +1064,52 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/businesses/{{businessId}}/dev/inbound-message",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "businesses",
-                "{{businessId}}",
-                "dev",
-                "inbound-message"
-              ]
+              "raw": "{{baseUrl}}/businesses/{{businessId}}/whatsapp-connection",
+              "host": ["{{baseUrl}}"],
+              "path": ["businesses", "{{businessId}}", "whatsapp-connection"]
             },
+            "description": "409 WHATSAPP_PHONE_NUMBER_IN_USE when another business already has this number. 400 VALIDATION_ERROR unless 6-30 digits.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"phone\": \"+20 100 000 0001\",\n  \"name\": \"Mona\",\n  \"externalMessageId\": \"wamid.{{$guid}}\",\n  \"content\": \"السلام عليكم، عندكم تيشيرت أسود مقاس L؟\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "description": "LOCAL ONLY. Works only with ENABLE_DEV_ENDPOINTS=true and a localhost DATABASE_URL; otherwise 404. Each send uses a new wamid ({{$guid}}). Not an Android API."
-          },
-          "response": [
-            {
-              "name": "201 Stored",
-              "originalRequest": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Accept",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/businesses/{{businessId}}/dev/inbound-message",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "businesses",
-                    "{{businessId}}",
-                    "dev",
-                    "inbound-message"
-                  ]
-                },
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"phone\": \"+20 100 000 0001\",\n  \"name\": \"Mona\",\n  \"externalMessageId\": \"wamid.{{$guid}}\",\n  \"content\": \"السلام عليكم، عندكم تيشيرت أسود مقاس L؟\"\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                }
-              },
-              "status": "Created",
-              "code": 201,
-              "_postman_previewlanguage": "json",
-              "header": [
-                {
-                  "key": "Content-Type",
-                  "value": "application/json; charset=utf-8"
-                }
-              ],
-              "body": "{\n  \"duplicate\": false,\n  \"customer\": {\n    \"id\": \"b3edad44-0698-4930-9d9c-75e7c7af50aa\",\n    \"businessId\": \"e02e6074-2b47-4e11-87ae-96e4b0e02322\",\n    \"phone\": \"201000000001\",\n    \"name\": \"Mona\",\n    \"createdAt\": \"2026-11-08T15:42:45.505Z\",\n    \"updatedAt\": \"2026-11-08T15:42:45.505Z\"\n  },\n  \"conversation\": {\n    \"id\": \"8676fb44-ce46-4dc4-a6bc-553c5e9cd27f\",\n    \"businessId\": \"e02e6074-2b47-4e11-87ae-96e4b0e02322\",\n    \"customerId\": \"b3edad44-0698-4930-9d9c-75e7c7af50aa\",\n    \"channel\": \"WHATSAPP\",\n    \"status\": \"OPEN\",\n    \"aiEnabled\": true,\n    \"handoffReason\": null,\n    \"lastMessageAt\": \"2026-11-08T15:42:45.515Z\",\n    \"lastCustomerMessageAt\": \"2026-11-08T15:42:45.515Z\",\n    \"createdAt\": \"2026-11-08T15:42:45.507Z\",\n    \"updatedAt\": \"2026-11-08T15:42:45.521Z\",\n    \"customer\": {\n      \"id\": \"b3edad44-0698-4930-9d9c-75e7c7af50aa\",\n      \"phone\": \"201000000001\",\n      \"name\": \"Mona\"\n    }\n  },\n  \"message\": {\n    \"id\": \"125919e2-06e1-4441-b228-470cf4976998\",\n    \"conversationId\": \"8676fb44-ce46-4dc4-a6bc-553c5e9cd27f\",\n    \"senderType\": \"CUSTOMER\",\n    \"externalMessageId\": \"wamid.HBgMMjAxMDAwMDAwMDAxFQIAEhgg\",\n    \"content\": \"السلام عليكم، عندكم تيشيرت أسود مقاس L؟\",\n    \"messageType\": \"TEXT\",\n    \"status\": \"RECEIVED\",\n    \"aiMeta\": null,\n    \"createdAt\": \"2026-11-08T15:42:45.515Z\"\n  }\n}"
-            },
-            {
-              "name": "200 Same wamid again (duplicate)",
-              "originalRequest": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Accept",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/businesses/{{businessId}}/dev/inbound-message",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "businesses",
-                    "{{businessId}}",
-                    "dev",
-                    "inbound-message"
-                  ]
-                },
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"phone\": \"+20 100 000 0001\",\n  \"name\": \"Mona\",\n  \"externalMessageId\": \"wamid.{{$guid}}\",\n  \"content\": \"السلام عليكم، عندكم تيشيرت أسود مقاس L؟\"\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                }
-              },
-              "status": "OK",
-              "code": 200,
-              "_postman_previewlanguage": "json",
-              "header": [
-                {
-                  "key": "Content-Type",
-                  "value": "application/json; charset=utf-8"
-                }
-              ],
-              "body": "{\n  \"duplicate\": true,\n  \"customer\": {\n    \"id\": \"b3edad44-0698-4930-9d9c-75e7c7af50aa\",\n    \"businessId\": \"e02e6074-2b47-4e11-87ae-96e4b0e02322\",\n    \"phone\": \"201000000001\",\n    \"name\": \"Mona\",\n    \"createdAt\": \"2026-11-08T15:42:45.505Z\",\n    \"updatedAt\": \"2026-11-08T15:42:45.505Z\"\n  },\n  \"conversation\": {\n    \"id\": \"8676fb44-ce46-4dc4-a6bc-553c5e9cd27f\",\n    \"businessId\": \"e02e6074-2b47-4e11-87ae-96e4b0e02322\",\n    \"customerId\": \"b3edad44-0698-4930-9d9c-75e7c7af50aa\",\n    \"channel\": \"WHATSAPP\",\n    \"status\": \"OPEN\",\n    \"aiEnabled\": true,\n    \"handoffReason\": null,\n    \"lastMessageAt\": \"2026-11-08T15:42:45.515Z\",\n    \"lastCustomerMessageAt\": \"2026-11-08T15:42:45.515Z\",\n    \"createdAt\": \"2026-11-08T15:42:45.507Z\",\n    \"updatedAt\": \"2026-11-08T15:42:45.521Z\",\n    \"customer\": {\n      \"id\": \"b3edad44-0698-4930-9d9c-75e7c7af50aa\",\n      \"phone\": \"201000000001\",\n      \"name\": \"Mona\"\n    }\n  },\n  \"message\": {\n    \"id\": \"125919e2-06e1-4441-b228-470cf4976998\",\n    \"conversationId\": \"8676fb44-ce46-4dc4-a6bc-553c5e9cd27f\",\n    \"senderType\": \"CUSTOMER\",\n    \"externalMessageId\": \"wamid.HBgMMjAxMDAwMDAwMDAxFQIAEhgg\",\n    \"content\": \"السلام عليكم، عندكم تيشيرت أسود مقاس L؟\",\n    \"messageType\": \"TEXT\",\n    \"status\": \"RECEIVED\",\n    \"aiMeta\": null,\n    \"createdAt\": \"2026-11-08T15:42:45.515Z\"\n  }\n}"
-            },
-            {
-              "name": "409 wamid stored under another business",
-              "originalRequest": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Accept",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/businesses/{{businessId}}/dev/inbound-message",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "businesses",
-                    "{{businessId}}",
-                    "dev",
-                    "inbound-message"
-                  ]
-                },
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"phone\": \"+20 100 000 0001\",\n  \"name\": \"Mona\",\n  \"externalMessageId\": \"wamid.{{$guid}}\",\n  \"content\": \"السلام عليكم، عندكم تيشيرت أسود مقاس L؟\"\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                }
-              },
-              "status": "Conflict",
-              "code": 409,
-              "_postman_previewlanguage": "json",
-              "header": [
-                {
-                  "key": "Content-Type",
-                  "value": "application/json; charset=utf-8"
-                }
-              ],
-              "body": "{\n  \"statusCode\": 409,\n  \"code\": \"EXTERNAL_MESSAGE_ID_CONFLICT\",\n  \"message\": \"externalMessageId already belongs to another business\",\n  \"error\": \"Conflict\"\n}"
-            },
-            {
-              "name": "400 Local phone without country code",
-              "originalRequest": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Accept",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/businesses/{{businessId}}/dev/inbound-message",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "businesses",
-                    "{{businessId}}",
-                    "dev",
-                    "inbound-message"
-                  ]
-                },
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"phone\": \"+20 100 000 0001\",\n  \"name\": \"Mona\",\n  \"externalMessageId\": \"wamid.{{$guid}}\",\n  \"content\": \"السلام عليكم، عندكم تيشيرت أسود مقاس L؟\"\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                }
-              },
-              "status": "Bad Request",
-              "code": 400,
-              "_postman_previewlanguage": "json",
-              "header": [
-                {
-                  "key": "Content-Type",
-                  "value": "application/json; charset=utf-8"
-                }
-              ],
-              "body": "{\n  \"statusCode\": 400,\n  \"code\": \"INVALID_PHONE_NUMBER\",\n  \"message\": \"phone must be an international number with 8 to 15 digits, e.g. 201000000001\",\n  \"error\": \"Bad Request\"\n}"
-            },
-            {
-              "name": "400 senderType is not allowed",
-              "originalRequest": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Accept",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/businesses/{{businessId}}/dev/inbound-message",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "businesses",
-                    "{{businessId}}",
-                    "dev",
-                    "inbound-message"
-                  ]
-                },
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"phone\": \"+20 100 000 0001\",\n  \"name\": \"Mona\",\n  \"externalMessageId\": \"wamid.{{$guid}}\",\n  \"content\": \"السلام عليكم، عندكم تيشيرت أسود مقاس L؟\"\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                }
-              },
-              "status": "Bad Request",
-              "code": 400,
-              "_postman_previewlanguage": "json",
-              "header": [
-                {
-                  "key": "Content-Type",
-                  "value": "application/json; charset=utf-8"
-                }
-              ],
-              "body": "{\n  \"statusCode\": 400,\n  \"code\": \"VALIDATION_ERROR\",\n  \"message\": [\n    \"property senderType should not exist\"\n  ],\n  \"error\": \"Bad Request\"\n}"
-            },
-            {
-              "name": "404 Switched off",
-              "originalRequest": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Accept",
-                    "value": "application/json"
-                  },
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "url": {
-                  "raw": "{{baseUrl}}/businesses/{{businessId}}/dev/inbound-message",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "businesses",
-                    "{{businessId}}",
-                    "dev",
-                    "inbound-message"
-                  ]
-                },
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"phone\": \"+20 100 000 0001\",\n  \"name\": \"Mona\",\n  \"externalMessageId\": \"wamid.{{$guid}}\",\n  \"content\": \"السلام عليكم، عندكم تيشيرت أسود مقاس L؟\"\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                }
-              },
-              "status": "Not Found",
-              "code": 404,
-              "_postman_previewlanguage": "json",
-              "header": [
-                {
-                  "key": "Content-Type",
-                  "value": "application/json; charset=utf-8"
-                }
-              ],
-              "body": "{\n  \"statusCode\": 404,\n  \"code\": \"NOT_FOUND\",\n  \"message\": \"Not Found\",\n  \"error\": \"Not Found\"\n}"
+              "raw": "{\n  \"phoneNumberId\": \"106540352242922\"\n}"
             }
-          ],
+          },
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "const save = (k, v) => { pm.collectionVariables.set(k, v); if (pm.environment.name) pm.environment.set(k, v); };",
-                  "pm.test('201 or 200', () => pm.expect([200, 201]).to.include(pm.response.code));",
-                  "if (pm.response.code === 201 || pm.response.code === 200) { const b = pm.response.json(); save('customerId', b.customer.id); save('conversationId', b.conversation.id); }"
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Linked WhatsApp number",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/businesses/{{businessId}}/whatsapp-connection",
+              "host": ["{{baseUrl}}"],
+              "path": ["businesses", "{{businessId}}", "whatsapp-connection"]
+            },
+            "description": "404 WHATSAPP_CONNECTION_NOT_FOUND until the number is linked."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
                 ]
               }
             }

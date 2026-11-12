@@ -186,3 +186,8 @@ includes a category, a product and a tracked variant, and every main table is
 compared before and after the upgrade. `regressions/message-limits.spec.ts` and
 `regressions/message-conflicts.spec.ts` run in `npm test` with mocks: length
 policy, 409 after an exhausted retry and the send-id conflict.
+
+WhatsApp: `npm run test:whatsapp:postgres` runs `whatsapp-postgres.cjs` on a new
+random localhost database: signed webhooks over real HTTP, one stored message
+per `wamid`, the business from the linked number only, one dry-run reply,
+forward-only delivery reports. `regressions/whatsapp-*.spec.ts` need no database.

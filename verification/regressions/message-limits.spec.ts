@@ -1,15 +1,21 @@
 import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { InboundMessageDto } from '../../src/conversations/dto/inbound-message.dto';
 import {
   AI_MAX_CUSTOMER_TEXT_CHARACTERS,
   characterCount,
   fitsAiLimit,
+  MaxCharacters,
   MESSAGE_MAX_CHARACTERS,
 } from '../../src/messages/message-limits';
 
-// Pure validation, no database. The PostgreSQL round trip is checked in
+/** Any DTO field that must fit one WhatsApp message uses this decorator. */
+class Probe {
+  @MaxCharacters(MESSAGE_MAX_CHARACTERS)
+  content!: string;
+}
+
+// Pure validation, no database. Storing long texts whole is checked in
 // verification/conversations-postgres.cjs (test 7).
 describe('message length policy (Unicode code points)', () => {
   it('counts Arabic, emoji, skin tones and variation selectors as code points', () => {
@@ -29,10 +35,7 @@ describe('message length policy (Unicode code points)', () => {
   });
 
   const errorsFor = async (content: string) => {
-    const dto = plainToInstance(InboundMessageDto, {
-      phone: '201000000001',
-      content,
-    });
+    const dto = plainToInstance(Probe, { content });
     return (await validate(dto)).map((e) => e.property);
   };
 

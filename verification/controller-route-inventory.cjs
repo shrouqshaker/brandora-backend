@@ -76,6 +76,8 @@ function verifyRoutePolicy({ verb, route, scope, guards }) {
   let expected;
   if (verb === 'GET' && route === '/.well-known/assetlinks.json')
     expected = 'public';
+  else if (route === '/webhooks/whatsapp' && ['GET', 'POST'].includes(verb))
+    expected = 'public'; // Meta: verify token (GET) and HMAC signature (POST)
   else if (verb === 'POST' && publicPaths.has(route)) expected = 'public';
   else if (
     (route === '/auth/me' && verb === 'GET') ||
@@ -103,13 +105,13 @@ function verifyControllerInventory(routes = controllerRoutes()) {
   );
   assert.equal(
     routes.length,
-    55,
+    58,
     'Review the policy and endpoint inventory when adding routes',
   );
   const publicCount = routes.filter(
     (r) => r.scope === 'public',
   ).length;
-  assert.equal(publicCount, 7);
+  assert.equal(publicCount, 9);
   return {
     routes: routes.length,
     protected: routes.length - publicCount,

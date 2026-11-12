@@ -26,6 +26,7 @@ model Business {
   customers          Customer[]
   conversations      Conversation[]
   messages           Message[]
+  whatsappConnection WhatsAppConnection?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 }
@@ -402,4 +403,17 @@ enum MessageDeliveryStatus {
   DELIVERED
   READ
   FAILED
+}
+
+/// Which WhatsApp business number belongs to which business (MVP: one each way).
+model WhatsAppConnection {
+  id            String   @id @default(uuid()) @db.Uuid
+  businessId    String   @unique @db.Uuid
+  business      Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  /// Meta's id for the business number (WhatsApp > API Setup), not the phone number itself.
+  phoneNumberId String   @unique @db.VarChar(64)
+  /// false = keep the link but ignore its webhooks and do not send from it.
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }

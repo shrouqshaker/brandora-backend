@@ -13,8 +13,8 @@ and Railway is deployed, use a local test backend agreed with Yomna.
 | Customers list and details                     | Ready         | Yes               |
 | Conversations list (inbox) and details         | Ready         | Yes               |
 | Messages of a conversation                     | Ready         | Yes               |
-| `POST .../dev/inbound-message` (fake WhatsApp) | Test-only     | **No**            |
-| WhatsApp webhook (real customer messages)      | Not built yet | No (server-side)  |
+| WhatsApp webhook (real customer messages)      | Ready (local) | No (server-side)  |
+| Linking the WhatsApp number (owner setting)    | Ready (local) | Yes (settings)    |
 | Sending a reply from the app, AI on/off toggle | Not built yet | Later             |
 | AI service integration (`/internal/ai/...`)    | Not built yet | **No** (internal) |
 
@@ -289,6 +289,25 @@ Page 2 (`limit=2&offset=2`), the last page:
   ]
 }
 ```
+
+## 3b. WhatsApp number (settings screen)
+
+The owner links her business to its WhatsApp number once. The value is Meta's
+**Phone number ID** (WhatsApp > API Setup), not the phone number itself.
+
+| Method | Path                                          | Body / answer                                  |
+| ------ | --------------------------------------------- | ---------------------------------------------- |
+| GET    | `/businesses/:businessId/whatsapp-connection` | `{ businessId, phoneNumberId, isActive, ... }` |
+| PUT    | `/businesses/:businessId/whatsapp-connection` | Body `{ "phoneNumberId": "106540352242922" }`  |
+
+| Answer                              | Android action                              |
+| ----------------------------------- | ------------------------------------------- |
+| `404 WHATSAPP_CONNECTION_NOT_FOUND` | Not linked yet: show the empty "link" form  |
+| `409 WHATSAPP_PHONE_NUMBER_IN_USE`  | "This number is linked to another business" |
+| `400 VALIDATION_ERROR`              | Digits only, 6 to 30                        |
+
+Customer messages then appear in the inbox by themselves (the webhook stores
+them); there is nothing to poll except the normal conversations list.
 
 ## 4. Fields, enums and nulls
 
