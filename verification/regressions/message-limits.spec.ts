@@ -11,7 +11,7 @@ import {
 
 /** Any DTO field that must fit one WhatsApp message uses this decorator. */
 class Probe {
- @MaxCharacters(MESSAGE_MAX_CHARACTERS)
+  @MaxCharacters(MESSAGE_MAX_CHARACTERS)
   content!: string;
 }
 
