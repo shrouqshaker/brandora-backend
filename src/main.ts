@@ -6,7 +6,8 @@ import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/errors/http-exception.filter';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  // rawBody: keep the exact bytes so WhatsApp signatures can be checked.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   app.useGlobalFilters(new HttpExceptionFilter(app.get(HttpAdapterHost)));
   app.useGlobalPipes(
     new ValidationPipe({

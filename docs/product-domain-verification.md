@@ -1,12 +1,3 @@
-# Release scope note
-
-The document below is a preserved historical record of the combined local
-workspace, including AI work and its original file inventory. It is not the
-current non-AI release manifest or an activation claim. This release excludes
-all AI modules, runners, collections and integration tests; its route inventory
-is 49 routes, 42 owner-protected and seven public. Historical contributions and
-recorded results below are retained without reinterpretation.
-
 # Product domain and Cloudinary execution report — 2026-11-04
 
 ## Result and scope

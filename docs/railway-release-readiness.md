@@ -8,8 +8,8 @@ settings or deployments were changed. The later Product-domain audit inspected
 production Neon schema/history read-only and tested new migrations on an isolated
 Neon child branch; see [its coordinated rollout gate](product-domain-database-rollout.md).
 Publication, environment changes, real email and database operations require their
-respective owner approvals. AI integration is excluded; permanent import storage
-remains deferred.
+respective owner approvals. Conversation integration and permanent import storage
+remain deferred.
 
 The Product/ProductImage release requires the three forward migrations
 and a coordinated maintenance window because deployed code still queries
@@ -50,13 +50,15 @@ procedures or add migration/cleanup commands to build or start.
 | `AUTH_EMAIL_MODE`                          | Set `brevo` only with the approved API key, sender and URL ready; otherwise `disabled`. Legacy `smtp` and `resend` are rejected. |
 | `BREVO_API_KEY`                           | Supply privately, with sending permission for the approved sender. Never paste into tickets or logs.                                            |
 | `BREVO_SENDER_EMAIL` | Bare sender email verified in the intended Brevo account; authenticate its owned domain. The old SMTP_FROM setting is not a fallback. |
+| `AI_INTEGRATION_ENABLED`                   | Keep `false`; default conversation persistence is unavailable.                                                                                  |
 | `IMPORT_STORAGE_DIR`                       | Preserve the existing setting; no volume or storage provider is provisioned here. Local files are not a persistence guarantee across redeploys. |
 
 `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`
 and `RESEND_API_KEY` are no longer
 read by the new transport. They need not be changed for this release preparation.
-No queue key or AI credentials are required. No AI module, routes or runner
-are included in this release.
+No queue key is required. Do not copy the generated local AI secrets or loopback
+URLs into production; AI enablement is deferred and credentials must be provisioned
+separately when approved. Never forward owner login/JWT credentials to AI.
 
 ## Forgot Password checks
 

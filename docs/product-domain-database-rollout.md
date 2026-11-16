@@ -129,8 +129,8 @@ Smallest coordinated sequence, to be performed only after separate approval:
    approved. Missing Cloudinary settings must not block normal Product CRUD.
 5. Verify schema/history, authenticated Products/Variants/Inventory, Excel
    re-import and isolation. Real Cloudinary upload/delete and Android display need
-   a separately approved disposable-image smoke test. AI integration is excluded
-   from this release and is not a dependency of the database cutover.
+   a separately approved disposable-image smoke test. AI stays disabled until its
+   separate conversation/security/end-to-end activation gates are satisfied.
 
 Rollback plan: before a migration commits, PostgreSQL rolls that transaction back
 on failure. After the rename commits, **do not simply roll Railway back to old

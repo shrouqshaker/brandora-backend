@@ -54,13 +54,16 @@ timeouts. Fake timers verify response timing without real email or database acce
 `controller-route-inventory.spec.cjs` runs automatically in `npm test` after its
 pretest build. It discovers compiled controllers directly under `dist/`, verifies
 every route against the reviewed authorization policy. Anonymous routes are the
-six rate-limited Auth operations and public App Links. It reads no temporary reports or
+six rate-limited Auth operations and public App Links. The internal AI route is
+exempt from owner JWT but requires its separate service guard and signed context.
+The inventory verifies that guard is present. It reads no temporary reports or
 archived code. For a standalone inventory after building, run
 `node verification/controller-route-inventory.cjs`.
 
 `npm run test:auth-hardening:postgres` also uses that maintained inventory to send
-anonymous HTTP requests to all 42 owner-JWT-protected endpoints through the real
-global guard. The PostgreSQL verifier also checks persistent
+anonymous HTTP requests to all 43 owner-JWT-protected endpoints through the real
+global guard. The separately guarded internal AI endpoint is covered by
+`regressions/ai-integration.spec.ts`. The PostgreSQL verifier also checks persistent
 rate-limit counters by closing the first database
 connection/provider and enforcing the same quota through a fresh replacement.
 These checks use the verifier's newly created random local database, never a
@@ -71,8 +74,8 @@ expiry and unavailable-store assertions remain enabled.
 Security hardening adds `auth-hardening.spec.ts` for shared-store quotas, proxy
 boundaries, fail-closed behavior, reset validation, Brevo configuration and ExcelJS
 UUID compatibility. The original Auth assertions remain and now use session-backed
-JWT fixtures. Current non-AI inventory is 49 endpoints: 42 owner-JWT-protected endpoints
-and seven anonymous endpoints (six Auth
+JWT fixtures. Current inventory is 51 endpoints: 43 owner-JWT-protected endpoints,
+one service-guarded internal AI endpoint and seven anonymous endpoints (six Auth
 operations and public App Links). No general business endpoint became public.
 
 `npm run test:auth-hardening:postgres` creates a fresh isolated local database on
@@ -167,3 +170,27 @@ application assertions, including concurrent Main changes, five-slot reservation
 races and two real Excel executions preserving images. Cloudinary was mocked.
 The separate localhost verifiers were not rerun; no Production or live external
 asset/OTP verification is claimed.
+
+Customers/conversations/messages: `npm run test:conversations:postgres` builds
+current source and runs `conversations-postgres.cjs` with Node's test runner on
+a new random database on a localhost PostgreSQL server (`TEST_POSTGRES_URL`, or
+the server in `.env` `DATABASE_URL`; anything else is refused). It upgrades from
+the main schema with Prisma while preserving existing rows, then checks drift,
+composite tenant keys in SQL, two-owner isolation over real JWT HTTP, dev-endpoint
+idempotency and races, forward-only conversation times and inbox order,
+forward-only delivery statuses, validation and the seed guard. The database is
+dropped afterwards unless `KEEP_TEST_DB=1`. See [the API](../docs/conversations-api.md).
+It also checks that AI/owner replies move the inbox order like customer messages,
+that a WhatsApp id stored twice on send answers 409, that length is counted in
+Unicode code points (Arabic and emoji, 4096 stored exactly, 4097 rejected), and
+the rollback script: refused while customers exist, then back to the main schema
+with the old rows untouched, then deployable again. The main-schema fixture now
+includes a category, a product and a tracked variant, and every main table is
+compared before and after the upgrade. `regressions/message-limits.spec.ts` and
+`regressions/message-conflicts.spec.ts` run in `npm test` with mocks: length
+policy, 409 after an exhausted retry and the send-id conflict.
+
+WhatsApp: `npm run test:whatsapp:postgres` runs `whatsapp-postgres.cjs` on a new
+random localhost database: signed webhooks over real HTTP, one stored message
+per `wamid`, the business from the linked number only, one dry-run reply,
+forward-only delivery reports. `regressions/whatsapp-*.spec.ts` need no database.

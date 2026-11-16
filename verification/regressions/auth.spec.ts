@@ -323,10 +323,12 @@ describe('Complete controller authorization policy inventory', () => {
         'AuthController.logout',
         'AuthController.forgotPassword',
         'AuthController.resetPassword',
+        'WhatsAppWebhookController.verify', // Meta: verify token
+        'WhatsAppWebhookController.receive', // Meta: HMAC signature
       ]).toContain(label);
   });
-  it('covers 49 endpoints including owner-only images', () => {
-    expect(routes).toHaveLength(49);
-    expect(routes.filter((route) => route.scope === 'public')).toHaveLength(7);
+  it('covers 60 endpoints including owner-only images, the WhatsApp webhook and the separately guarded internal AI boundary', () => {
+    expect(routes).toHaveLength(60);
+    expect(routes.filter((route) => route.scope === 'public')).toHaveLength(10);
   });
 });

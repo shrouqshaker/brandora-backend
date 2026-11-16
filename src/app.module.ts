@@ -8,6 +8,10 @@ import { ProductsModule } from './products/products.module';
 import { VariantsModule } from './variants/variants.module';
 import { AuthModule } from './auth/auth.module';
 import { AppLinksController } from './app-links.controller';
+import { AiModule } from './ai/ai.module';
+import { CustomersModule } from './customers/customers.module';
+import { ConversationsModule } from './conversations/conversations.module';
+import { WhatsAppModule } from './whatsapp/whatsapp.module';
 
 @Module({
   controllers: [AppLinksController],
@@ -33,6 +37,10 @@ import { AppLinksController } from './app-links.controller';
     ProductsModule,
     VariantsModule,
     AuthModule,
+    AiModule,
+    CustomersModule,
+    ConversationsModule,
+    WhatsAppModule,
   ],
 })
 export class AppModule {}

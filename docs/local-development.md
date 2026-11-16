@@ -56,6 +56,7 @@ guarantee across redeploys. Product images use Cloudinary; see
 see [verification](../verification/README.md) for exact prerequisites.
 The historical product-foundation SQL verifier targets an earlier schema.
 
-AI integration is excluded from this release; no local AI runner is packaged.
+The separate [AI/Postman harness](ai-local-testing.md) uses explicit local
+configuration and does not enable production conversation integration.
 Read the [Railway release checklist](railway-release-readiness.md) and
 [proxy security review](railway-proxy-security.md) before publication.
