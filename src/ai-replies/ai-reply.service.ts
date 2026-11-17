@@ -16,6 +16,12 @@ export const AI_FALLBACK_REPLY =
 export const NON_TEXT_REPLY =
   'حاليًا بنقدر نرد على الرسايل المكتوبة بس 🙏 ممكن تكتبلنا طلبك؟';
 
+/** Why the AI stepped back in a conversation (Conversation.handoffReason). */
+export type HandoffReason =
+  | 'AI_REVIEW_REQUIRED' // the AI said the owner should look (complaint, shortage...)
+  | 'AI_UNAVAILABLE' // the AI failed twice in a row
+  | 'MESSAGE_TOO_LONG'; // longer than the AI accepts (2000 characters)
+
 /** One customer message that was just stored. */
 export interface CustomerTurn {
   businessId: string;
@@ -23,6 +29,12 @@ export interface CustomerTurn {
   messageId: string;
 }
 
+/**
+ * Decides whether and how to answer a customer message, then sends the answer.
+ * AiService does the AI part (signing, calling the AI, checking its
+ * answer, saving it through ConversationsAiStore). This service only decides
+ * and sends, and it never throws: the webhook must not fail because of a reply.
+ */
 @Injectable()
 export class AiReplyService {
   private readonly logger = new Logger('AiReply');
@@ -79,9 +91,7 @@ export class AiReplyService {
     }
     // 3) Longer than the AI accepts (2000): stored and shown, the owner answers.
     if (!fitsAiLimit(customer.content)) {
-      this.logger.log(
-        `Message ${messageId} is too long for the AI; left for the owner`,
-      );
+      await this.handOff(businessId, conversationId, 'MESSAGE_TOO_LONG');
       return;
     }
 
@@ -108,11 +118,47 @@ export class AiReplyService {
       }));
     await this.sender.deliver(businessId, reply.id);
 
-    // 6) The customer wants to buy: tell the owner, who creates the order.
-    const intent = (reply.aiMeta as { intent?: string } | null)?.intent;
-    if (intent === 'PURCHASE_INTENT')
+    // 6) Tell the owner when the customer wants to buy: she makes the order.
+    const meta = reply.aiMeta as {
+      intent?: string;
+      requiresReview?: boolean;
+      source?: string;
+    } | null;
+    if (meta?.intent === 'PURCHASE_INTENT')
       await this.notifier
         .purchaseIntent(businessId, conversationId)
         .catch(() => undefined);
+
+    // 7) Human handoff: the reply above is sent, then the AI goes quiet here.
+    if (meta?.requiresReview === true)
+      await this.handOff(businessId, conversationId, 'AI_REVIEW_REQUIRED');
+    else if (meta?.source === 'fallback') {
+      const before = await this.messages.previousAiReply(
+        businessId,
+        conversationId,
+        reply.id,
+      );
+      const was = (before?.aiMeta as { source?: string } | null)?.source;
+      if (was === 'fallback')
+        await this.handOff(businessId, conversationId, 'AI_UNAVAILABLE');
+    }
+  }
+
+  /** Switch the AI off here and tell the owner, once (startHandoff is true once). */
+  private async handOff(
+    businessId: string,
+    conversationId: string,
+    reason: HandoffReason,
+  ): Promise<void> {
+    const switched = await this.conversations.startHandoff(
+      businessId,
+      conversationId,
+      reason,
+    );
+    if (!switched) return;
+    this.logger.log(`Handoff ${reason} in conversation ${conversationId}`);
+    await this.notifier
+      .handoffRequested(businessId, conversationId, reason)
+      .catch(() => undefined);
   }
 }

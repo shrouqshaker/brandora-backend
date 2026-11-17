@@ -176,6 +176,24 @@ export class MessagesService {
     });
   }
 
+  /** The AI message sent just before `exceptId` in this conversation, if any. */
+  previousAiReply(
+    businessId: string,
+    conversationId: string,
+    exceptId: string,
+  ) {
+    return this.prisma.message.findFirst({
+      where: {
+        businessId,
+        conversationId,
+        senderType: MessageSenderType.AI,
+        id: { not: exceptId },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: messageSelect,
+    });
+  }
+
   /** Newest first, so offset paging returns the latest page first; clients reverse for display. */
   async listForConversation(
     businessId: string,

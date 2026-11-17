@@ -45,6 +45,22 @@ const fixture = JSON.parse(
 );
 
 let sql, app, http, ownerA, ownerB, bizA, bizB, fakeAi, backendUrl;
+async function restartFakeAi(port) {
+  fakeAi = startFakeAi({
+    port,
+    backendUrl: () => backendUrl,
+    aiToken: AI_TOKEN,
+    backendToken: BACKEND_TOKEN,
+    publicKey: keys.publicKey,
+  });
+  await new Promise((r) => fakeAi.once('listening', r));
+}
+async function stopFakeAi() {
+  const port = fakeAi.address().port;
+  fakeAi.close();
+  await new Promise((r) => fakeAi.once('close', r));
+  return port;
+}
 const keys = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const AI_TOKEN = randomBytes(32).toString('base64url');
 const BACKEND_TOKEN = randomBytes(32).toString('base64url');
@@ -122,14 +138,7 @@ before(
       },
     );
     assert.equal(deploy.status, 0, deploy.stdout + deploy.stderr);
-    fakeAi = startFakeAi({
-      port: 0,
-      backendUrl: () => backendUrl,
-      aiToken: AI_TOKEN,
-      backendToken: BACKEND_TOKEN,
-      publicKey: keys.publicKey,
-    });
-    await new Promise((r) => fakeAi.once('listening', r));
+    await restartFakeAi(0);
 
     Object.assign(process.env, {
       DATABASE_URL: url,
@@ -414,8 +423,7 @@ test('8. one customer message never gets two AI replies, even if processed twice
 });
 
 test('9. AI down: one safe fixed reply; non-text: a fixed reply; too long: left for the owner', async () => {
-  fakeAi.close();
-  await new Promise((r) => fakeAi.once('close', r));
+  const aiPort = await stopFakeAi();
   await post(webhook({ messages: [['wamid.down', 'في حد هنا؟']] }));
   const down = await customerMessage('wamid.down');
   const [fallback] = await replyTo(down.id);
@@ -432,6 +440,7 @@ test('9. AI down: one safe fixed reply; non-text: a fixed reply; too long: left 
   const [fixed] = await replyTo(voice.id);
   assert.equal(fixed.aiMeta.source, 'backend');
 
+  await restartFakeAi(aiPort);
   await post(webhook({ messages: [['wamid.long', 'م'.repeat(2001)]] }));
   const long = await customerMessage('wamid.long');
   await new Promise((r) => setTimeout(r, 500));
@@ -441,6 +450,14 @@ test('9. AI down: one safe fixed reply; non-text: a fixed reply; too long: left 
     ]),
     [],
   );
+  const [chat] = await rows(
+    'SELECT "aiEnabled", "handoffReason" FROM "Conversation" WHERE id=$1',
+    [long.conversationId],
+  );
+  assert.deepEqual(chat, {
+    aiEnabled: false,
+    handoffReason: 'MESSAGE_TOO_LONG',
+  });
 });
 
 test('10. when the owner took the chat (aiEnabled=false) the AI stays silent', async () => {
@@ -618,6 +635,130 @@ test('13. reject: no stock change, the customer hears the reason; a decided orde
     body: { reason: 'x', extra: true },
     status: 400,
   });
+});
+
+// ---------------------------------------------------------------- Human handoff
+const chatOf = async (wamid) => {
+  const m = await customerMessage(wamid);
+  return (
+    await rows(
+      'SELECT id, "aiEnabled", "handoffReason", "handoffAt" FROM "Conversation" WHERE id=$1',
+      [m.conversationId],
+    )
+  )[0];
+};
+
+test('14. the owner switches the AI off and on in one conversation', async () => {
+  await post(
+    webhook({ from: '201000000014', messages: [['wamid.h14', 'سلام']] }),
+  );
+  const chat = await chatOf('wamid.h14');
+  const path = `/businesses/${bizA}/conversations/${chat.id}`;
+  const off = await call('patch', path, { body: { aiEnabled: false } });
+  assert.equal(off.aiEnabled, false);
+  assert.equal(off.handoffReason, 'OWNER_TOOK_OVER');
+  assert.ok(off.handoffAt);
+  const on = await call('patch', path, { body: { aiEnabled: true } });
+  assert.deepEqual(
+    [on.aiEnabled, on.handoffReason, on.handoffAt],
+    [true, null, null],
+  );
+  await call('patch', path, { body: { aiEnabled: 'yes' }, status: 400 });
+  await call('patch', path, {
+    body: { aiEnabled: false },
+    status: 404,
+    as: ownerB,
+  });
+});
+
+test('15. the owner replies from the app: sent, the AI steps back, 24-hour rule', async () => {
+  await post(
+    webhook({ from: '201000000015', messages: [['wamid.h15', 'ممكن سؤال؟']] }),
+  );
+  const chat = await chatOf('wamid.h15');
+  const path = `/businesses/${bizA}/conversations/${chat.id}/messages`;
+  const sent = await call('post', path, {
+    body: { content: '  أهلًا، أنا صاحبة المحل  ' },
+    status: 201,
+  });
+  assert.equal(sent.senderType, 'OWNER');
+  assert.equal(sent.content, 'أهلًا، أنا صاحبة المحل');
+  assert.equal(sent.status, 'SENT');
+  const after = await chatOf('wamid.h15');
+  assert.deepEqual(
+    [after.aiEnabled, after.handoffReason],
+    [false, 'OWNER_TOOK_OVER'],
+  );
+  await call('post', path, { body: { content: '   ' }, status: 400 });
+  await sql.query(
+    `UPDATE "Conversation" SET "lastCustomerMessageAt"=(now() AT TIME ZONE 'UTC') - interval '25 hours' WHERE id=$1`,
+    [chat.id],
+  );
+  const closed = await call('post', path, {
+    body: { content: 'متأخر' },
+    status: 409,
+  });
+  assert.equal(closed.code, 'WHATSAPP_WINDOW_CLOSED');
+});
+
+test('16. the AI asks for the owner (requiresReview): its reply is sent, then it goes quiet', async () => {
+  await post(
+    webhook({
+      from: '201000000016',
+      messages: [['wamid.h16', 'عندي شكوى الطلب اتأخر']],
+    }),
+  );
+  const first = await customerMessage('wamid.h16');
+  const [answer] = await replyTo(first.id);
+  assert.equal(answer.aiMeta.requiresReview, true);
+  const chat = await until(async () => {
+    const c = await chatOf('wamid.h16');
+    return c.aiEnabled === false ? c : null;
+  }, 'the handoff');
+  assert.equal(chat.handoffReason, 'AI_REVIEW_REQUIRED');
+  await post(
+    webhook({
+      from: '201000000016',
+      messages: [['wamid.h16b', 'رد عليا لو سمحت']],
+    }),
+  );
+  const second = await customerMessage('wamid.h16b');
+  await new Promise((r) => setTimeout(r, 500));
+  assert.deepEqual(
+    await rows('SELECT id FROM "Message" WHERE "replyToMessageId"=$1', [
+      second.id,
+    ]),
+    [],
+  );
+});
+
+test('17. the AI fails twice in a row: the conversation goes to the owner', async () => {
+  const aiPort = await stopFakeAi();
+  try {
+    await post(
+      webhook({ from: '201000000017', messages: [['wamid.h17a', 'سلام']] }),
+    );
+    await replyTo((await customerMessage('wamid.h17a')).id);
+    assert.equal(
+      (await chatOf('wamid.h17a')).aiEnabled,
+      true,
+      'one failure is not enough',
+    );
+    await post(
+      webhook({
+        from: '201000000017',
+        messages: [['wamid.h17b', 'سلام تاني']],
+      }),
+    );
+    await replyTo((await customerMessage('wamid.h17b')).id);
+    const chat = await until(async () => {
+      const c = await chatOf('wamid.h17b');
+      return c.aiEnabled === false ? c : null;
+    }, 'the handoff');
+    assert.equal(chat.handoffReason, 'AI_UNAVAILABLE');
+  } finally {
+    await restartFakeAi(aiPort);
+  }
 });
 
 after(async () => {
