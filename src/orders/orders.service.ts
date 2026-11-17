@@ -4,6 +4,7 @@ import { ErrorCode } from '../common/errors/error-code';
 import { isUniqueViolation } from '../common/database/is-unique-violation';
 import { createPagination } from '../common/pagination/pagination';
 import { Prisma } from '../generated/prisma/client';
+import { InventoryService } from '../inventory/inventory.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProductsService } from '../products/products.service';
 import { VariantsService } from '../variants/variants.service';
@@ -17,6 +18,7 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly products: ProductsService,
     private readonly variants: VariantsService,
+    private readonly inventory: InventoryService,
   ) {}
 
   /**
@@ -149,6 +151,82 @@ export class OrdersService {
     });
     if (!order) throw this.notFound();
     return orderResponse(order);
+  }
+
+  /**
+   * PENDING_APPROVAL -> IN_PROGRESS and take the stock of every line, in ONE
+   * transaction: all of it happens, or none of it (the order stays pending).
+   */
+  async approve(
+    businessId: string,
+    orderId: string,
+    userId: string,
+  ): Promise<OrderView> {
+    await this.prisma.$transaction(async (tx) => {
+      // Only a pending order can move. Two taps at once: one wins, one gets 409.
+      const moved = await tx.order.updateMany({
+        where: { id: orderId, businessId, status: 'PENDING_APPROVAL' },
+        data: {
+          status: 'IN_PROGRESS',
+          approvedAt: new Date(),
+          approvedByUserId: userId,
+        },
+      });
+      if (moved.count === 0)
+        throw await this.whyNotPending(tx, businessId, orderId);
+      const items = await tx.orderItem.findMany({
+        where: { businessId, orderId },
+        orderBy: { position: 'asc' },
+      });
+      for (const item of items)
+        // InventoryService, inside OUR transaction. item.id makes it
+        // idempotent: the same line is never taken twice. Not enough stock ->
+        // 409 INVENTORY_INSUFFICIENT_STOCK and everything above is undone.
+        await this.inventory.deductForOrder(
+          tx,
+          { businessId, productId: item.productId, id: item.variantId },
+          item.quantity,
+          item.id,
+        );
+    });
+    return this.getOne(businessId, orderId);
+  }
+
+  /** PENDING_APPROVAL -> CANCELLED. Nothing was taken from stock yet. */
+  async reject(
+    businessId: string,
+    orderId: string,
+    reason?: string,
+  ): Promise<OrderView> {
+    const moved = await this.prisma.order.updateMany({
+      where: { id: orderId, businessId, status: 'PENDING_APPROVAL' },
+      data: {
+        status: 'CANCELLED',
+        cancelledAt: new Date(),
+        cancelReason: reason ?? null,
+      },
+    });
+    if (moved.count === 0)
+      throw await this.whyNotPending(this.prisma, businessId, orderId);
+    return this.getOne(businessId, orderId);
+  }
+
+  /** 404 if it is not this business's order, 409 if it already moved on. */
+  private async whyNotPending(
+    db: Prisma.TransactionClient,
+    businessId: string,
+    orderId: string,
+  ): Promise<AppHttpException> {
+    const order = await db.order.findFirst({
+      where: { id: orderId, businessId },
+      select: { status: true },
+    });
+    if (!order) return this.notFound();
+    return new AppHttpException(
+      ErrorCode.ORDER_NOT_PENDING,
+      HttpStatus.CONFLICT,
+      `The order is ${order.status}, not PENDING_APPROVAL`,
+    );
   }
 
   private async findBySource(businessId: string, sourceMessageId: string) {

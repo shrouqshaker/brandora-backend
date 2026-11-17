@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -12,6 +13,7 @@ import type { Response } from 'express';
 import { AuthScope, CurrentUser, Identity } from '../auth/auth-policy';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ListOrdersDto } from './dto/list-orders.dto';
+import { RejectOrderDto } from './dto/reject-order.dto';
 import { OrdersService } from './orders.service';
 
 @Controller('businesses/:businessId/orders')
@@ -50,5 +52,25 @@ export class OrdersController {
     @Param('orderId', new ParseUUIDPipe()) orderId: string,
   ) {
     return this.orders.getOne(businessId, orderId);
+  }
+
+  @Post(':orderId/approve')
+  @HttpCode(200)
+  approve(
+    @Param('businessId', new ParseUUIDPipe()) businessId: string,
+    @Param('orderId', new ParseUUIDPipe()) orderId: string,
+    @CurrentUser() user: Identity,
+  ) {
+    return this.orders.approve(businessId, orderId, user.id);
+  }
+
+  @Post(':orderId/reject')
+  @HttpCode(200)
+  reject(
+    @Param('businessId', new ParseUUIDPipe()) businessId: string,
+    @Param('orderId', new ParseUUIDPipe()) orderId: string,
+    @Body() dto: RejectOrderDto,
+  ) {
+    return this.orders.reject(businessId, orderId, dto.reason);
   }
 }
