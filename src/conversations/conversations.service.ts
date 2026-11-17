@@ -27,6 +27,7 @@ export const conversationSelect = {
   status: true,
   aiEnabled: true,
   handoffReason: true,
+  handoffAt: true,
   lastMessageAt: true,
   lastCustomerMessageAt: true,
   createdAt: true,
@@ -211,6 +212,45 @@ export class ConversationsService {
       conversationId,
       pagination,
     );
+  }
+
+  /**
+   * The owner's switch in the app. Off = she answers herself (OWNER_TOOK_OVER).
+   * Only changes a conversation that is not already in that state, so turning
+   * it off twice keeps the first reason.
+   */
+  async setAiEnabled(
+    businessId: string,
+    conversationId: string,
+    aiEnabled: boolean,
+  ) {
+    await this.prisma.conversation.updateMany({
+      where: { id: conversationId, businessId, aiEnabled: !aiEnabled },
+      data: aiEnabled
+        ? { aiEnabled: true, handoffReason: null, handoffAt: null }
+        : {
+            aiEnabled: false,
+            handoffReason: 'OWNER_TOOK_OVER',
+            handoffAt: new Date(),
+          },
+    });
+    return this.getOne(businessId, conversationId); // 404 if not this business's
+  }
+
+  /**
+   * The AI steps back in this conversation. True only for the call that
+   * actually switched it off, so the owner is notified once, not per message.
+   */
+  async startHandoff(
+    businessId: string,
+    conversationId: string,
+    reason: string,
+  ): Promise<boolean> {
+    const changed = await this.prisma.conversation.updateMany({
+      where: { id: conversationId, businessId, aiEnabled: true },
+      data: { aiEnabled: false, handoffReason: reason, handoffAt: new Date() },
+    });
+    return changed.count === 1;
   }
 
   private async findDuplicate(

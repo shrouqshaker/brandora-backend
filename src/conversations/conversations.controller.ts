@@ -1,7 +1,16 @@
-import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Query,
+} from '@nestjs/common';
 import { PaginationQueryDto } from '../common/pagination/pagination-query.dto';
 import { ConversationsService } from './conversations.service';
 import { ListConversationsDto } from './dto/list-conversations.dto';
+import { UpdateConversationDto } from './dto/update-conversation.dto';
 import { AuthScope } from '../auth/auth-policy';
 
 @Controller('businesses/:businessId/conversations')
@@ -23,6 +32,19 @@ export class ConversationsController {
     @Param('conversationId', new ParseUUIDPipe()) conversationId: string,
   ) {
     return this.conversations.getOne(businessId, conversationId);
+  }
+
+  @Patch(':conversationId')
+  update(
+    @Param('businessId', new ParseUUIDPipe()) businessId: string,
+    @Param('conversationId', new ParseUUIDPipe()) conversationId: string,
+    @Body() dto: UpdateConversationDto,
+  ) {
+    return this.conversations.setAiEnabled(
+      businessId,
+      conversationId,
+      dto.aiEnabled,
+    );
   }
 
   @Get(':conversationId/messages')
