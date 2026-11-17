@@ -5,11 +5,13 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   Query,
 } from '@nestjs/common';
 import { PaginationQueryDto } from '../common/pagination/pagination-query.dto';
 import { ConversationsService } from './conversations.service';
 import { ListConversationsDto } from './dto/list-conversations.dto';
+import { SendMessageDto } from './dto/send-message.dto';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
 import { AuthScope } from '../auth/auth-policy';
 
@@ -57,6 +59,20 @@ export class ConversationsController {
       businessId,
       conversationId,
       pagination,
+    );
+  }
+
+  /** The owner answers from the app. 201 with the message (SENT or FAILED). */
+  @Post(':conversationId/messages')
+  reply(
+    @Param('businessId', new ParseUUIDPipe()) businessId: string,
+    @Param('conversationId', new ParseUUIDPipe()) conversationId: string,
+    @Body() dto: SendMessageDto,
+  ) {
+    return this.conversations.ownerReply(
+      businessId,
+      conversationId,
+      dto.content,
     );
   }
 }

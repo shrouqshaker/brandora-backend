@@ -16,6 +16,7 @@ import {
   Prisma,
 } from '../generated/prisma/client';
 import { MessagesService, messageSelect } from '../messages/messages.service';
+import { WhatsAppSenderService } from '../whatsapp/whatsapp-sender.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ListConversationsDto } from './dto/list-conversations.dto';
 
@@ -56,6 +57,8 @@ export interface IngestResult {
 }
 
 const MAX_ATTEMPTS = 2;
+/** WhatsApp lets a business write freely for 24 hours after the customer's last message. */
+const CUSTOMER_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class ConversationsService {
@@ -63,6 +66,7 @@ export class ConversationsService {
     private readonly prisma: PrismaService,
     private readonly customers: CustomersService,
     private readonly messages: MessagesService,
+    private readonly sender: WhatsAppSenderService,
   ) {}
 
   /**
@@ -251,6 +255,32 @@ export class ConversationsService {
       data: { aiEnabled: false, handoffReason: reason, handoffAt: new Date() },
     });
     return changed.count === 1;
+  }
+
+  /**
+   * The owner writes to the customer from the app. The AI steps back first
+   * (OWNER_TOOK_OVER), so two voices never answer the same customer.
+   */
+  async ownerReply(
+    businessId: string,
+    conversationId: string,
+    content: string,
+  ) {
+    const conversation = await this.getOne(businessId, conversationId);
+    const last = conversation.lastCustomerMessageAt;
+    if (!last || Date.now() - last.getTime() > CUSTOMER_WINDOW_MS)
+      throw new AppHttpException(
+        ErrorCode.WHATSAPP_WINDOW_CLOSED,
+        HttpStatus.CONFLICT,
+        'More than 24 hours since the customer last wrote; WhatsApp only allows templates now',
+      );
+    await this.startHandoff(businessId, conversationId, 'OWNER_TOOK_OVER');
+    return this.sender.send({
+      businessId,
+      conversationId,
+      senderType: 'OWNER',
+      content,
+    });
   }
 
   private async findDuplicate(

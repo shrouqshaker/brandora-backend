@@ -3,6 +3,7 @@ import { ConversationsService } from '../../src/conversations/conversations.serv
 import { CustomersService } from '../../src/customers/customers.service';
 import { MessagesService } from '../../src/messages/messages.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
+import { WhatsAppSenderService } from '../../src/whatsapp/whatsapp-sender.service';
 
 // Prisma is mocked, so these two rare paths can be forced. Real races are
 // checked in verification/conversations-postgres.cjs (tests 3 and 6).
@@ -21,6 +22,7 @@ describe('ingestInboundMessage when a race outlasts the retry', () => {
       prisma as unknown as PrismaService,
       {} as CustomersService,
       {} as MessagesService,
+      {} as WhatsAppSenderService,
     );
     const error = await service
       .ingestInboundMessage({
