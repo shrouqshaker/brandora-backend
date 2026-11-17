@@ -62,6 +62,11 @@ Excel upload limit. Multiple messages share a code when their semantics match.
 | Invalid webhook signature                                                                                        | `WHATSAPP_SIGNATURE_INVALID`         |
 | This WhatsApp number is already linked to another business                                                       | `WHATSAPP_PHONE_NUMBER_IN_USE`       |
 | This business has no WhatsApp number yet                                                                         | `WHATSAPP_CONNECTION_NOT_FOUND`      |
+| Customer message not found in this business                                                                      | `MESSAGE_NOT_FOUND`                  |
+| Each variant can appear only once in an order                                                                    | `VALIDATION_ERROR`                   |
+| A product in the order is inactive or has no price                                                               | `ORDER_ITEM_UNAVAILABLE`             |
+| Order not found in this business                                                                                 | `ORDER_NOT_FOUND`                    |
+| The order is <status>, not PENDING_APPROVAL                                                                      | `ORDER_NOT_PENDING`                  |
 | Stock changed concurrently; retry the operation                                                                  | `INVENTORY_CONFLICT`                 |
 
 Variant inventory adds `409 INVENTORY_INACTIVE` for stock writes/sales on inactive
