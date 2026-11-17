@@ -67,6 +67,7 @@ Excel upload limit. Multiple messages share a code when their semantics match.
 | A product in the order is inactive or has no price                                                               | `ORDER_ITEM_UNAVAILABLE`             |
 | Order not found in this business                                                                                 | `ORDER_NOT_FOUND`                    |
 | The order is <status>, not PENDING_APPROVAL                                                                      | `ORDER_NOT_PENDING`                  |
+| More than 24 hours since the customer last wrote; WhatsApp only allows templates now                             | `WHATSAPP_WINDOW_CLOSED`             |
 | Stock changed concurrently; retry the operation                                                                  | `INVENTORY_CONFLICT`                 |
 
 Variant inventory adds `409 INVENTORY_INACTIVE` for stock writes/sales on inactive

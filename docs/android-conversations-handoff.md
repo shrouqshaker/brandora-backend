@@ -8,15 +8,16 @@ and Railway is deployed, use a local test backend agreed with Yomna.
 
 ## 1. What is ready, test-only, or not built
 
-| Area                                           | State         | Android uses it?  |
-| ---------------------------------------------- | ------------- | ----------------- |
-| Customers list and details                     | Ready         | Yes               |
-| Conversations list (inbox) and details         | Ready         | Yes               |
-| Messages of a conversation                     | Ready         | Yes               |
-| WhatsApp webhook (real customer messages)      | Ready (local) | No (server-side)  |
-| Linking the WhatsApp number (owner setting)    | Ready (local) | Yes (settings)    |
-| Sending a reply from the app, AI on/off toggle | Not built yet | Later             |
-| AI service integration (`/internal/ai/...`)    | Not built yet | **No** (internal) |
+| Area                                           | State         | Android uses it?    |
+| ---------------------------------------------- | ------------- | ------------------- |
+| Customers list and details                     | Ready         | Yes                 |
+| Conversations list (inbox) and details         | Ready         | Yes                 |
+| Messages of a conversation                     | Ready         | Yes                 |
+| WhatsApp webhook (real customer messages)      | Ready (local) | No (server-side)    |
+| Linking the WhatsApp number (owner setting)    | Ready (local) | Yes (settings)      |
+| Sending a reply from the app, AI on/off toggle | Ready (local) | Yes (chat screen)   |
+| Orders from a customer message                 | Ready (local) | Yes (orders-api.md) |
+| AI service integration (`/internal/ai/...`)    | Ready (local) | **No** (internal)   |
 
 Android never needs Meta, WhatsApp or AI keys. Do not call internal or dev routes.
 
@@ -308,6 +309,20 @@ The owner links her business to its WhatsApp number once. The value is Meta's
 
 Customer messages then appear in the inbox by themselves (the webhook stores
 them); there is nothing to poll except the normal conversations list.
+
+## 3c. Chat screen: reply and AI switch
+
+- Send: `POST .../conversations/:conversationId/messages` with `{ "content" }`
+  (1-4096 after trimming). 201 with the message; show `FAILED` with a retry
+  option. `409 WHATSAPP_WINDOW_CLOSED`: "the customer has not written for 24
+  hours; WhatsApp does not allow a normal message now".
+- Switch: `PATCH .../conversations/:conversationId` with `{ "aiEnabled": false }`
+  or `true`. Show `handoffReason` as a small banner when `aiEnabled` is false
+  (`AI_REVIEW_REQUIRED`, `AI_UNAVAILABLE`, `MESSAGE_TOO_LONG`, `OWNER_TOOK_OVER`).
+- Sending a reply switches the AI off for that chat; the owner turns it back on.
+- `message.aiMeta.intent = "PURCHASE_INTENT"` on an AI message: show a
+  "Make order" button that opens the order form with that customer message's id
+  as `sourceMessageId` (see orders-api.md).
 
 ## 4. Fields, enums and nulls
 

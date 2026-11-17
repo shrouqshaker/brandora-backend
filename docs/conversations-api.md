@@ -199,6 +199,34 @@ new message (who sends and when is decided with the WhatsApp work).
 
 Errors: same as Conversations.
 
+## Human handoff (owner takes over)
+
+| Method | Path                                                             | Body                    |
+| ------ | ---------------------------------------------------------------- | ----------------------- |
+| PATCH  | `/businesses/:businessId/conversations/:conversationId`          | `{ "aiEnabled": bool }` |
+| POST   | `/businesses/:businessId/conversations/:conversationId/messages` | `{ "content": "..." }`  |
+
+`PATCH` answers the conversation. `false` sets `handoffReason: "OWNER_TOOK_OVER"`
+and `handoffAt`; `true` clears both and the AI answers again. Only booleans are
+accepted (`400 VALIDATION_ERROR`).
+
+`POST .../messages` sends the owner's text on WhatsApp (1-4096 characters after
+trimming) and answers **201** with the stored message (`status` `SENT` or
+`FAILED`). The AI steps back first (`OWNER_TOOK_OVER`), so the AI and the owner
+never both answer. More than 24 hours after the customer's last message,
+WhatsApp only allows paid templates: `409 WHATSAPP_WINDOW_CLOSED`.
+
+The AI also steps back by itself (`aiEnabled: false`, the owner is notified once):
+
+| `handoffReason`      | When                                                                                         |
+| -------------------- | -------------------------------------------------------------------------------------------- |
+| `AI_REVIEW_REQUIRED` | The AI's answer had `requiresReview: true` (complaint, shortage...); its reply is still sent |
+| `AI_UNAVAILABLE`     | The AI failed twice in a row (two fixed fallback replies)                                    |
+| `MESSAGE_TOO_LONG`   | The customer wrote more than 2000 characters                                                 |
+| `OWNER_TOOK_OVER`    | The owner switched it off or replied herself                                                 |
+
+Conversations now also return `handoffAt` (null while the AI is on).
+
 ## Test messages without Meta (local only)
 
 The temporary `POST /businesses/:businessId/dev/inbound-message` endpoint was
