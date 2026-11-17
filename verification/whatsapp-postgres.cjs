@@ -462,6 +462,164 @@ test('10. when the owner took the chat (aiEnabled=false) the AI stays silent', a
   ]);
 });
 
+// ---------------------------------------------------------------- Orders
+let shirt, variantId;
+const stock = async () =>
+  (
+    await rows('SELECT "stockQuantity" FROM "ProductVariant" WHERE id=$1', [
+      variantId,
+    ])
+  )[0].stockQuantity;
+const lastOwnerMessage = async (conversationId) =>
+  (
+    await rows(
+      `SELECT content, status FROM "Message" WHERE "conversationId"=$1 AND "senderType"='OWNER' ORDER BY "createdAt" DESC LIMIT 1`,
+      [conversationId],
+    )
+  )[0];
+
+test('11. the owner makes an order from a customer message: database prices, one order per message', async () => {
+  shirt = await call('post', `/businesses/${bizA}/products`, {
+    body: { name: 'تيشيرت كحلي', basePrice: '250.00' },
+    status: 201,
+  });
+  variantId = shirt.variants[0].id;
+  await call(
+    'post',
+    `/businesses/${bizA}/products/${shirt.id}/variants/${variantId}/inventory/adjust`,
+    { body: { quantity: 3 }, status: 201 },
+  );
+  await post(webhook({ messages: [['wamid.order-1', 'عايز 2 تيشيرت كحلي']] }));
+  const asked = await customerMessage('wamid.order-1');
+  const body = {
+    sourceMessageId: asked.id,
+    items: [{ productId: shirt.id, variantId, quantity: 2 }],
+  };
+  const order = await call('post', `/businesses/${bizA}/orders`, {
+    body,
+    status: 201,
+  });
+  assert.equal(order.status, 'PENDING_APPROVAL');
+  assert.equal(order.total, '500.00');
+  assert.equal(order.items[0].unitPrice, '250.00');
+  assert.equal(order.items[0].productName, 'تيشيرت كحلي');
+  assert.equal(order.requiresReview, false);
+  assert.equal(await stock(), 3, 'pending orders take no stock');
+  const again = await call('post', `/businesses/${bizA}/orders`, {
+    body,
+    status: 200,
+  });
+  assert.equal(again.id, order.id);
+
+  const big = await post(
+    webhook({ messages: [['wamid.order-big', 'عايز 5']] }),
+  );
+  assert.equal(big.status, 200);
+  const bigAsked = await customerMessage('wamid.order-big');
+  const low = await call('post', `/businesses/${bizA}/orders`, {
+    body: {
+      sourceMessageId: bigAsked.id,
+      items: [{ productId: shirt.id, variantId, quantity: 5 }],
+    },
+    status: 201,
+  });
+  assert.equal(low.requiresReview, true);
+  assert.equal(low.reviewReason, 'LOW_STOCK');
+
+  const [aiReply] = await rows(
+    'SELECT id FROM "Message" WHERE "replyToMessageId"=$1',
+    [asked.id],
+  );
+  const notCustomer = await call('post', `/businesses/${bizA}/orders`, {
+    body: { ...body, sourceMessageId: aiReply?.id ?? randomUUID() },
+    status: 404,
+  });
+  assert.equal(notCustomer.code, 'MESSAGE_NOT_FOUND');
+  await call('post', `/businesses/${bizA}/orders`, {
+    body,
+    status: 404,
+    as: ownerB,
+  });
+  await call('get', `/businesses/${bizA}/orders/${order.id}`, {
+    status: 404,
+    as: ownerB,
+  });
+  const list = await call(
+    'get',
+    `/businesses/${bizA}/orders?status=PENDING_APPROVAL`,
+  );
+  assert.equal(list.pagination.totalCount, 2);
+});
+
+test('12. approve: stock taken once in one transaction, the customer gets the confirmation', async () => {
+  const [order] = (
+    await call('get', `/businesses/${bizA}/orders?status=PENDING_APPROVAL`)
+  ).items.filter((o) => o.total === '500.00');
+  const [first, second] = await Promise.all([
+    http
+      .post(`/businesses/${bizA}/orders/${order.id}/approve`)
+      .set('Authorization', 'Bearer ' + ownerA),
+    http
+      .post(`/businesses/${bizA}/orders/${order.id}/approve`)
+      .set('Authorization', 'Bearer ' + ownerA),
+  ]);
+  assert.deepEqual([first.status, second.status].sort(), [200, 409]);
+  const ok = first.status === 200 ? first.body : second.body;
+  assert.equal(ok.status, 'IN_PROGRESS');
+  assert.equal(ok.customerNotification, 'SENT');
+  assert.equal(await stock(), 1, '3 - 2, taken once');
+  const message = await lastOwnerMessage(order.conversationId);
+  assert.equal(
+    message.content,
+    'تم تأكيد طلبك ✅\n- تيشيرت كحلي × 2\nالإجمالي: 500.00 EGP',
+  );
+
+  const [low] = (
+    await call('get', `/businesses/${bizA}/orders?status=PENDING_APPROVAL`)
+  ).items;
+  const refused = await call(
+    'post',
+    `/businesses/${bizA}/orders/${low.id}/approve`,
+    { status: 409 },
+  );
+  assert.equal(refused.code, 'INVENTORY_INSUFFICIENT_STOCK');
+  assert.equal(
+    (await call('get', `/businesses/${bizA}/orders/${low.id}`)).status,
+    'PENDING_APPROVAL',
+  );
+  assert.equal(await stock(), 1, 'nothing taken when one line fails');
+});
+
+test('13. reject: no stock change, the customer hears the reason; a decided order cannot change', async () => {
+  const [low] = (
+    await call('get', `/businesses/${bizA}/orders?status=PENDING_APPROVAL`)
+  ).items;
+  const rejected = await call(
+    'post',
+    `/businesses/${bizA}/orders/${low.id}/reject`,
+    {
+      body: { reason: '  الكمية مش متاحة  ' },
+    },
+  );
+  assert.equal(rejected.status, 'CANCELLED');
+  assert.equal(rejected.cancelReason, 'الكمية مش متاحة');
+  assert.equal(await stock(), 1);
+  assert.match(
+    (await lastOwnerMessage(low.conversationId)).content,
+    /السبب: الكمية مش متاحة/,
+  );
+  const again = await call(
+    'post',
+    `/businesses/${bizA}/orders/${low.id}/reject`,
+    { body: {}, status: 409 },
+  );
+  assert.equal(again.code, 'ORDER_NOT_PENDING');
+  await call('post', `/businesses/${bizA}/orders/${low.id}/reject`, {
+    body: { reason: 'x', extra: true },
+    status: 400,
+  });
+});
+
 after(async () => {
   if (app) await app.close();
   if (fakeAi?.listening) fakeAi.close();

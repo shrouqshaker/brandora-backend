@@ -42,3 +42,22 @@ export function orderResponse(order: OrderRow) {
 }
 
 export type OrderView = ReturnType<typeof orderResponse>;
+
+/** The WhatsApp text for the customer, built from the saved order (not the AI). */
+export function confirmationText(order: OrderView): string {
+  if (order.status === 'CANCELLED') {
+    const reason = order.cancelReason ? `\nالسبب: ${order.cancelReason}` : '';
+    return `للأسف مش هنقدر ننفذ طلبك المرة دي.${reason}`;
+  }
+  const lines = order.items.map((item) => {
+    const options = Object.values(
+      (item.selectedOptions ?? {}) as Record<string, string>,
+    ).join(' / ');
+    return `- ${item.productName}${options ? ` (${options})` : ''} × ${item.quantity}`;
+  });
+  return [
+    'تم تأكيد طلبك ✅',
+    ...lines,
+    `الإجمالي: ${order.total} ${order.currency}`,
+  ].join('\n');
+}

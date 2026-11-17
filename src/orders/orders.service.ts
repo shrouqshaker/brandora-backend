@@ -8,9 +8,18 @@ import { InventoryService } from '../inventory/inventory.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProductsService } from '../products/products.service';
 import { VariantsService } from '../variants/variants.service';
+import { WhatsAppSenderService } from '../whatsapp/whatsapp-sender.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ListOrdersDto } from './dto/list-orders.dto';
-import { orderInclude, orderResponse, OrderView } from './order-presenter';
+import {
+  confirmationText,
+  orderInclude,
+  orderResponse,
+  OrderView,
+} from './order-presenter';
+
+/** Did the customer get the WhatsApp message about the decision? */
+export type CustomerNotification = 'SENT' | 'FAILED';
 
 @Injectable()
 export class OrdersService {
@@ -19,6 +28,7 @@ export class OrdersService {
     private readonly products: ProductsService,
     private readonly variants: VariantsService,
     private readonly inventory: InventoryService,
+    private readonly sender: WhatsAppSenderService,
   ) {}
 
   /**
@@ -57,7 +67,7 @@ export class OrdersService {
     let lowStock = false;
     const lines: Prisma.OrderItemCreateWithoutOrderInput[] = [];
     for (const [index, item] of dto.items.entries()) {
-      // Shrouq's services: 404 if the product/variant is not in THIS business.
+      // ProductsService / VariantsService: 404 if not in THIS business.
       const product = await this.products.get(businessId, item.productId);
       const variant = await this.variants.get(
         businessId,
@@ -161,7 +171,7 @@ export class OrdersService {
     businessId: string,
     orderId: string,
     userId: string,
-  ): Promise<OrderView> {
+  ): Promise<OrderView & { customerNotification: CustomerNotification }> {
     await this.prisma.$transaction(async (tx) => {
       // Only a pending order can move. Two taps at once: one wins, one gets 409.
       const moved = await tx.order.updateMany({
@@ -189,7 +199,11 @@ export class OrdersService {
           item.id,
         );
     });
-    return this.getOne(businessId, orderId);
+    // After the commit: the customer hears "confirmed" only when it is true.
+    return this.tellCustomer(
+      businessId,
+      await this.getOne(businessId, orderId),
+    );
   }
 
   /** PENDING_APPROVAL -> CANCELLED. Nothing was taken from stock yet. */
@@ -197,7 +211,7 @@ export class OrdersService {
     businessId: string,
     orderId: string,
     reason?: string,
-  ): Promise<OrderView> {
+  ): Promise<OrderView & { customerNotification: CustomerNotification }> {
     const moved = await this.prisma.order.updateMany({
       where: { id: orderId, businessId, status: 'PENDING_APPROVAL' },
       data: {
@@ -208,7 +222,27 @@ export class OrdersService {
     });
     if (moved.count === 0)
       throw await this.whyNotPending(this.prisma, businessId, orderId);
-    return this.getOne(businessId, orderId);
+    return this.tellCustomer(
+      businessId,
+      await this.getOne(businessId, orderId),
+    );
+  }
+
+  /**
+   * Sends the decision on WhatsApp. Never undoes it: if Meta refuses (for
+   * example after the 24-hour window) the app just sees "FAILED".
+   */
+  private async tellCustomer(businessId: string, order: OrderView) {
+    const message = await this.sender.send({
+      businessId,
+      conversationId: order.conversationId,
+      senderType: 'OWNER',
+      content: confirmationText(order),
+      aiMeta: { intent: 'ORDER_STATUS', orderId: order.id, source: 'backend' },
+    });
+    const customerNotification: CustomerNotification =
+      message.status === 'FAILED' ? 'FAILED' : 'SENT';
+    return { ...order, customerNotification };
   }
 
   /** 404 if it is not this business's order, 409 if it already moved on. */
