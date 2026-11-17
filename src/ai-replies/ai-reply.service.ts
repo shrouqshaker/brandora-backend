@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AiService } from '../ai/ai.service';
 import { AppHttpException } from '../common/errors/app-http.exception';
@@ -7,6 +7,7 @@ import { fitsAiLimit } from '../messages/message-limits';
 import { MessagesService } from '../messages/messages.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppSenderService } from '../whatsapp/whatsapp-sender.service';
+import { OWNER_NOTIFIER, OwnerNotifier } from './owner-notifier';
 
 /** Sent when the AI cannot answer right now. It promises nothing about products. */
 export const AI_FALLBACK_REPLY =
@@ -33,6 +34,7 @@ export class AiReplyService {
     private readonly conversations: ConversationsService,
     private readonly messages: MessagesService,
     private readonly sender: WhatsAppSenderService,
+    @Inject(OWNER_NOTIFIER) private readonly notifier: OwnerNotifier,
   ) {}
 
   async answer(turn: CustomerTurn): Promise<void> {
@@ -105,5 +107,12 @@ export class AiReplyService {
         aiMeta: { intent: 'OTHER', requiresReview: false, source: 'fallback' },
       }));
     await this.sender.deliver(businessId, reply.id);
+
+    // 6) The customer wants to buy: tell the owner, who creates the order.
+    const intent = (reply.aiMeta as { intent?: string } | null)?.intent;
+    if (intent === 'PURCHASE_INTENT')
+      await this.notifier
+        .purchaseIntent(businessId, conversationId)
+        .catch(() => undefined);
   }
 }
