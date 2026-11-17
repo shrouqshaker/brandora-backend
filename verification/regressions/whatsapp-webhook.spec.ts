@@ -4,9 +4,9 @@ import { HttpAdapterHost } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import { createHmac } from 'node:crypto';
 import request from 'supertest';
+import { AiReplyService } from '../../src/ai-replies/ai-reply.service';
 import { HttpExceptionFilter } from '../../src/common/errors/http-exception.filter';
 import { InboundWebhookService } from '../../src/whatsapp/inbound-webhook.service';
-import { WhatsAppSenderService } from '../../src/whatsapp/whatsapp-sender.service';
 import { WhatsAppSettings } from '../../src/whatsapp/whatsapp-settings';
 import { isValidWhatsAppSignature } from '../../src/whatsapp/whatsapp-signature';
 import { WhatsAppWebhookController } from '../../src/whatsapp/whatsapp-webhook.controller';
@@ -48,7 +48,10 @@ describe('WhatsApp webhook HTTP', () => {
       providers: [
         WhatsAppSettings,
         { provide: InboundWebhookService, useValue: { store: async () => [] } },
-        { provide: WhatsAppSenderService, useValue: {} },
+        {
+          provide: AiReplyService,
+          useValue: { answer: async () => undefined },
+        },
         {
           provide: ConfigService,
           useValue: { get: (key: string) => env[key] },

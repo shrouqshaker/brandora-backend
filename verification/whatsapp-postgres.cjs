@@ -1,13 +1,12 @@
-// WhatsApp webhook end to end: REAL PostgreSQL, REAL HTTP, signed like Meta.
-//
-//   npm run test:whatsapp:postgres
-//
-// Creates a NEW random database on your LOCAL PostgreSQL server (from .env
-// DATABASE_URL or TEST_POSTGRES_URL), deploys every migration, runs the
-// checks and deletes the database. Nothing is sent to Meta: dry run only.
 const assert = require('node:assert/strict');
 const { test, before, after } = require('node:test');
-const { randomUUID, randomBytes, createHmac } = require('node:crypto');
+const {
+  randomUUID,
+  randomBytes,
+  createHmac,
+  generateKeyPairSync,
+} = require('node:crypto');
+const { startFakeAi } = require('./tools/fake-ai-service.cjs');
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -45,7 +44,10 @@ const fixture = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'fixtures/whatsapp-text.json'), 'utf8'),
 );
 
-let sql, app, http, ownerA, ownerB, bizA, bizB;
+let sql, app, http, ownerA, ownerB, bizA, bizB, fakeAi, backendUrl;
+const keys = generateKeyPairSync('rsa', { modulusLength: 2048 });
+const AI_TOKEN = randomBytes(32).toString('base64url');
+const BACKEND_TOKEN = randomBytes(32).toString('base64url');
 
 async function call(method, route, { body, status = 200, as = ownerA } = {}) {
   let r = http[method](route);
@@ -120,6 +122,14 @@ before(
       },
     );
     assert.equal(deploy.status, 0, deploy.stdout + deploy.stderr);
+    fakeAi = startFakeAi({
+      port: 0,
+      backendUrl: () => backendUrl,
+      aiToken: AI_TOKEN,
+      backendToken: BACKEND_TOKEN,
+      publicKey: keys.publicKey,
+    });
+    await new Promise((r) => fakeAi.once('listening', r));
 
     Object.assign(process.env, {
       DATABASE_URL: url,
@@ -134,7 +144,14 @@ before(
       WHATSAPP_VERIFY_TOKEN: VERIFY,
       WHATSAPP_APP_SECRET: SECRET,
       WHATSAPP_DRY_RUN: 'true',
-      AI_INTEGRATION_ENABLED: 'false',
+      AI_INTEGRATION_ENABLED: 'true',
+      AI_BASE_URL: `http://127.0.0.1:${fakeAi.address().port}`,
+      AI_SERVICE_TOKEN: AI_TOKEN,
+      BACKEND_SERVICE_TOKEN: BACKEND_TOKEN,
+      AI_CONTEXT_PRIVATE_KEY: keys.privateKey.export({
+        type: 'pkcs8',
+        format: 'pem',
+      }),
     });
     require('reflect-metadata');
     const { Test } = require('@nestjs/testing');
@@ -158,6 +175,7 @@ before(
     );
     app.useGlobalFilters(new HttpExceptionFilter(app.get(HttpAdapterHost)));
     await app.listen(0, '127.0.0.1');
+    backendUrl = `http://127.0.0.1:${app.getHttpServer().address().port}`;
     http = request(app.getHttpServer());
 
     const register = async (email) =>
@@ -188,22 +206,18 @@ before(
 );
 
 test('1. Meta checks the URL: the right word returns the challenge, a wrong one is 403', async () => {
-  const res = await http
-    .get('/webhooks/whatsapp')
-    .query({
-      'hub.mode': 'subscribe',
-      'hub.verify_token': VERIFY,
-      'hub.challenge': '424242',
-    });
+  const res = await http.get('/webhooks/whatsapp').query({
+    'hub.mode': 'subscribe',
+    'hub.verify_token': VERIFY,
+    'hub.challenge': '424242',
+  });
   assert.equal(res.status, 200);
   assert.equal(res.text, '424242');
-  const bad = await http
-    .get('/webhooks/whatsapp')
-    .query({
-      'hub.mode': 'subscribe',
-      'hub.verify_token': 'nope',
-      'hub.challenge': '1',
-    });
+  const bad = await http.get('/webhooks/whatsapp').query({
+    'hub.mode': 'subscribe',
+    'hub.verify_token': 'nope',
+    'hub.challenge': '1',
+  });
   assert.equal(bad.status, 403);
   assert.equal(bad.body.code, 'WHATSAPP_VERIFY_TOKEN_INVALID');
 });
@@ -271,6 +285,10 @@ test('4. a message is stored once in the right business, and answered once', asy
   assert.equal(replies.length, 1, 'three deliveries, one answer');
   assert.equal(replies[0].status, 'SENT');
   assert.match(replies[0].externalMessageId, /^dryrun-/);
+  assert.ok(
+    replies[0].externalMessageId,
+    'answered by the AI and sent (dry run)',
+  );
   const customer = await rows(
     'SELECT name, phone FROM "Customer" WHERE "businessId"=$1',
     [bizA],
@@ -326,8 +344,127 @@ test('6. numbers that are not linked, or paused, are ignored', async () => {
   });
 });
 
+// ---------------------------------------------------------------- AI replies
+const replyTo = async (messageId) =>
+  until(async () => {
+    const r = await rows(
+      `SELECT content, status, "aiMeta" FROM "Message" WHERE "replyToMessageId"=$1`,
+      [messageId],
+    );
+    return r.length && r[0].status !== 'PENDING' ? r : null;
+  }, 'the AI reply');
+const customerMessage = async (wamid) =>
+  (
+    await rows(
+      'SELECT id, "conversationId" FROM "Message" WHERE "externalMessageId"=$1',
+      [wamid],
+    )
+  )[0];
+
+test('7. the AI answers from real products and real history, through src/ai', async () => {
+  const product = await call('post', `/businesses/${bizA}/products`, {
+    body: { name: 'تيشيرت أسود', basePrice: '250.00' },
+    status: 201,
+  });
+  assert.equal(product.variants.length, 1);
+  await post(webhook({ messages: [['wamid.price', 'التيشيرت الأسود بكام؟']] }));
+  const asked = await customerMessage('wamid.price');
+  const [answer] = await replyTo(asked.id);
+  assert.equal(answer.content, 'تيشيرت أسود بـ 250.00 جنيه.');
+  assert.equal(answer.status, 'SENT');
+  assert.deepEqual(answer.aiMeta, {
+    intent: 'INQUIRY',
+    requiresReview: false,
+    source: 'ai',
+  });
+
+  // History is read back through /internal/ai/data: the fake says "تاني".
+  await post(webhook({ messages: [['wamid.hello', 'مساء الخير']] }));
+  const hello = await customerMessage('wamid.hello');
+  assert.equal(
+    (await replyTo(hello.id))[0].content,
+    'أهلًا بيك تاني! تحب تسأل عن إيه؟',
+  );
+});
+
+test('8. one customer message never gets two AI replies, even if processed twice', async () => {
+  const { AiReplyService } = require('../dist/ai-replies/ai-reply.service');
+  const replies = app.get(AiReplyService);
+  const asked = await customerMessage('wamid.price');
+  await Promise.all([
+    replies.answer({
+      businessId: bizA,
+      conversationId: asked.conversationId,
+      messageId: asked.id,
+    }),
+    replies.answer({
+      businessId: bizA,
+      conversationId: asked.conversationId,
+      messageId: asked.id,
+    }),
+  ]);
+  assert.equal(
+    (
+      await rows('SELECT id FROM "Message" WHERE "replyToMessageId"=$1', [
+        asked.id,
+      ])
+    ).length,
+    1,
+  );
+});
+
+test('9. AI down: one safe fixed reply; non-text: a fixed reply; too long: left for the owner', async () => {
+  fakeAi.close();
+  await new Promise((r) => fakeAi.once('close', r));
+  await post(webhook({ messages: [['wamid.down', 'في حد هنا؟']] }));
+  const down = await customerMessage('wamid.down');
+  const [fallback] = await replyTo(down.id);
+  assert.equal(fallback.aiMeta.source, 'fallback');
+  assert.match(fallback.content, /صاحب المحل هيشوف رسالتك/);
+
+  const payload = JSON.parse(webhook({ messages: [['wamid.voice', 'x']] }));
+  const m = payload.entry[0].changes[0].value.messages[0];
+  m.type = 'voice';
+  delete m.text;
+  m.voice = { id: 'media-1' };
+  await post(JSON.stringify(payload));
+  const voice = await customerMessage('wamid.voice');
+  const [fixed] = await replyTo(voice.id);
+  assert.equal(fixed.aiMeta.source, 'backend');
+
+  await post(webhook({ messages: [['wamid.long', 'م'.repeat(2001)]] }));
+  const long = await customerMessage('wamid.long');
+  await new Promise((r) => setTimeout(r, 500));
+  assert.deepEqual(
+    await rows('SELECT id FROM "Message" WHERE "replyToMessageId"=$1', [
+      long.id,
+    ]),
+    [],
+  );
+});
+
+test('10. when the owner took the chat (aiEnabled=false) the AI stays silent', async () => {
+  const asked = await customerMessage('wamid.price');
+  await sql.query('UPDATE "Conversation" SET "aiEnabled"=false WHERE id=$1', [
+    asked.conversationId,
+  ]);
+  await post(webhook({ messages: [['wamid.quiet', 'سلام']] }));
+  const quiet = await customerMessage('wamid.quiet');
+  await new Promise((r) => setTimeout(r, 500));
+  assert.deepEqual(
+    await rows('SELECT id FROM "Message" WHERE "replyToMessageId"=$1', [
+      quiet.id,
+    ]),
+    [],
+  );
+  await sql.query('UPDATE "Conversation" SET "aiEnabled"=true WHERE id=$1', [
+    asked.conversationId,
+  ]);
+});
+
 after(async () => {
   if (app) await app.close();
+  if (fakeAi?.listening) fakeAi.close();
   if (sql) await sql.end();
   await admin
     .query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`)
