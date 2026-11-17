@@ -91,6 +91,11 @@ working hours. Expanding that capability needs a separate agreed contract/test.
 
 ## Conversation dependency — fail closed
 
+> **Update (conversations team):** `ConversationsAiStore` in `src/conversations/`
+> is now the registered `AiConversationStore`, and every new WhatsApp customer
+> message is answered through `AiService.respond`. How it meets the four points
+> below, and how to run it locally: [ai-replies.md](ai-replies.md).
+
 Current main has no Customer/Conversation/Message models. The cached branch
 `origin/feature/customers-conversations@0e92d6b` contains their foundation, but
 predates current auth/products and must not be enabled by copying old controllers.
