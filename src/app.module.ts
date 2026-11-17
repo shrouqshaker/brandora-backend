@@ -12,6 +12,7 @@ import { AiModule } from './ai/ai.module';
 import { CustomersModule } from './customers/customers.module';
 import { ConversationsModule } from './conversations/conversations.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
+import { OrdersModule } from './orders/orders.module';
 
 @Module({
   controllers: [AppLinksController],
@@ -41,6 +42,7 @@ import { WhatsAppModule } from './whatsapp/whatsapp.module';
     CustomersModule,
     ConversationsModule,
     WhatsAppModule,
+    OrdersModule,
   ],
 })
 export class AppModule {}
