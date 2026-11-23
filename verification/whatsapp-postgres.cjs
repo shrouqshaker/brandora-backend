@@ -1396,6 +1396,211 @@ test('30. variant data: productId is the official name, catalogItemId stays the 
   );
 });
 
+// ---------------------------------------------------------------- Purchase intent and approval
+async function productWithStock(name, price, quantity) {
+  const p = await call('post', `/businesses/${bizA}/products`, {
+    body: { name, basePrice: price },
+    status: 201,
+  });
+  const v = p.variants[0].id;
+  await call(
+    'post',
+    `/businesses/${bizA}/products/${p.id}/variants/${v}/inventory/adjust`,
+    { body: { quantity }, status: 201 },
+  );
+  return { productId: p.id, variantId: v };
+}
+const stockOf = async (id) =>
+  (
+    await rows('SELECT "stockQuantity" FROM "ProductVariant" WHERE id=$1', [id])
+  )[0].stockQuantity;
+/** A pending order from a new customer message (no AI involved). */
+async function pendingOrder(phone, item, quantity) {
+  const m = await quietChat(phone, `wamid.order-${phone}`, 'عايز اطلب');
+  return call('post', `/businesses/${bizA}/orders`, {
+    body: { sourceMessageId: m.id, items: [{ ...item, quantity }] },
+    status: 201,
+  });
+}
+const approve = (orderId, body = {}) =>
+  http
+    .post(`/businesses/${bizA}/orders/${orderId}/approve`)
+    .set('Authorization', 'Bearer ' + ownerA)
+    .send(body);
+
+test('31. PURCHASE_INTENT: an alert for the owner, no order, no stock taken; her order clears it', async () => {
+  const before = await stock();
+  const count = async () =>
+    (await rows('SELECT count(*)::int AS n FROM "Order"'))[0].n;
+  const orders = await count();
+  await post(
+    webhook({
+      from: '201000000031',
+      messages: [['wamid.buy', 'عايز تيشيرت كحلي']],
+    }),
+  );
+  const asked = await customerMessage('wamid.buy');
+  const [reply] = await replyTo(asked.id);
+  assert.equal(reply.aiMeta.intent, 'PURCHASE_INTENT');
+  const path = `/businesses/${bizA}/conversations/${asked.conversationId}`;
+  const chat = await until(async () => {
+    const c = await call('get', path);
+    return c.purchaseMessageId ? c : null;
+  }, 'the alert');
+  assert.equal(chat.purchaseMessageId, asked.id);
+  assert.ok(chat.purchaseIntentAt);
+  assert.equal(chat.aiEnabled, true, 'the AI keeps helping (size, color...)');
+  assert.equal(await stock(), before, 'nothing taken');
+  assert.equal(await count(), orders, 'no order by itself');
+
+  await call('post', `/businesses/${bizA}/orders`, {
+    body: {
+      sourceMessageId: asked.id,
+      items: [{ productId: shirt.id, variantId, quantity: 1 }],
+    },
+    status: 201,
+  });
+  const after = await call('get', path);
+  assert.deepEqual(
+    [after.purchaseMessageId, after.purchaseIntentAt],
+    [null, null],
+  );
+  assert.equal(await stock(), before, 'a pending order takes nothing either');
+});
+
+test("32. approve after the price changed: refused until the owner accepts today's price", async () => {
+  const bag = await productWithStock('شنطة جلد', '400.00', 5);
+  const order = await pendingOrder('201000000032', bag, 2);
+  assert.equal(order.total, '800.00');
+  await call(
+    'patch',
+    `/businesses/${bizA}/products/${bag.productId}/variants/${bag.variantId}`,
+    { body: { unitPrice: '450.00' } },
+  );
+  const refused = await approve(order.id);
+  assert.equal(refused.status, 409);
+  assert.equal(refused.body.code, 'ORDER_PRICE_CHANGED');
+  assert.equal(await stockOf(bag.variantId), 5, 'nothing taken');
+  assert.equal(
+    (await call('get', `/businesses/${bizA}/orders/${order.id}`)).status,
+    'PENDING_APPROVAL',
+  );
+  assert.equal(
+    (await approve(order.id, { acceptCurrentPrices: 'yes' })).status,
+    400,
+  );
+  assert.equal((await approve(order.id, { extra: true })).status, 400);
+  const ok = await approve(order.id, { acceptCurrentPrices: true });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(
+    [
+      ok.body.status,
+      ok.body.items[0].unitPrice,
+      ok.body.items[0].lineTotal,
+      ok.body.total,
+    ],
+    ['IN_PROGRESS', '450.00', '900.00', '900.00'],
+    "today's price is the new snapshot",
+  );
+  assert.equal(await stockOf(bag.variantId), 3);
+  assert.match(
+    (await lastOwnerMessage(order.conversationId)).content,
+    /900\.00/,
+  );
+});
+
+test('33. approve checks stock and the product again: not enough or switched off -> 409, nothing taken', async () => {
+  const cap = await productWithStock('كاب', '100.00', 3);
+  const order = await pendingOrder('201000000033', cap, 3);
+  const adjust = (quantity) =>
+    call(
+      'post',
+      `/businesses/${bizA}/products/${cap.productId}/variants/${cap.variantId}/inventory/adjust`,
+      { body: { quantity }, status: 201 },
+    );
+  await adjust(2); // someone bought one in the shop
+  const low = await approve(order.id);
+  assert.deepEqual(
+    [low.status, low.body.code],
+    [409, 'INVENTORY_INSUFFICIENT_STOCK'],
+  );
+  assert.equal(await stockOf(cap.variantId), 2);
+  await adjust(3);
+  const variantPath = `/businesses/${bizA}/products/${cap.productId}/variants/${cap.variantId}`;
+  await call('patch', variantPath, { body: { isActive: false } });
+  const off = await approve(order.id);
+  assert.deepEqual(
+    [off.status, off.body.code],
+    [409, 'ORDER_ITEM_UNAVAILABLE'],
+  );
+  assert.equal(await stockOf(cap.variantId), 3);
+  await call('patch', variantPath, { body: { isActive: true } });
+  assert.equal((await approve(order.id)).status, 200);
+  assert.equal(await stockOf(cap.variantId), 0);
+});
+
+test('34. two approvals at the same moment: one order moves, its stock is taken once', async () => {
+  const coat = await productWithStock('جاكيت', '500.00', 4);
+  const order = await pendingOrder('201000000034', coat, 2);
+  const results = await Promise.all([approve(order.id), approve(order.id)]);
+  assert.deepEqual(results.map((r) => r.status).sort(), [200, 409]);
+  assert.equal(await stockOf(coat.variantId), 2);
+  const [moves] = await rows(
+    `SELECT count(*)::int AS n FROM "InventoryMovement" WHERE "referenceType"='ORDER_LINE' AND "referenceId"=$1 AND type='ORDER_APPROVED'`,
+    [order.items[0].id],
+  );
+  assert.equal(moves.n, 1, 'one movement for the line');
+});
+
+test('35. the last unit: two orders approved together, only one gets it (no overselling)', async () => {
+  const last = await productWithStock('آخر قطعة', '300.00', 1);
+  const a = await pendingOrder('201000000035', last, 1);
+  const b = await pendingOrder('201000000135', last, 1);
+  const results = await Promise.all([approve(a.id), approve(b.id)]);
+  assert.deepEqual(results.map((r) => r.status).sort(), [200, 409]);
+  assert.equal(
+    results.find((r) => r.status === 409).body.code,
+    'INVENTORY_INSUFFICIENT_STOCK',
+  );
+  assert.equal(await stockOf(last.variantId), 0, 'never below zero');
+  const statuses = await rows(
+    'SELECT status FROM "Order" WHERE id = ANY($1::uuid[])',
+    [[a.id, b.id]],
+  );
+  assert.deepEqual(statuses.map((o) => o.status).sort(), [
+    'IN_PROGRESS',
+    'PENDING_APPROVAL',
+  ]);
+});
+
+test('36. one order per customer message, even when two taps arrive together', async () => {
+  const m = await quietChat('201000000036', 'wamid.tap', 'عايز جاكيت');
+  const coat = (
+    await rows(
+      `SELECT v.id AS "variantId", v."productId" FROM "ProductVariant" v JOIN "Product" p ON p.id=v."productId" WHERE p.name='جاكيت'`,
+    )
+  )[0];
+  const body = {
+    sourceMessageId: m.id,
+    items: [
+      { productId: coat.productId, variantId: coat.variantId, quantity: 1 },
+    ],
+  };
+  const send = () =>
+    http
+      .post(`/businesses/${bizA}/orders`)
+      .set('Authorization', 'Bearer ' + ownerA)
+      .send(body);
+  const [x, y] = await Promise.all([send(), send()]);
+  assert.deepEqual([x.status, y.status].sort(), [200, 201]);
+  assert.equal(x.body.id, y.body.id);
+  const [n] = await rows(
+    'SELECT count(*)::int AS n FROM "Order" WHERE "sourceMessageId"=$1',
+    [m.id],
+  );
+  assert.equal(n.n, 1);
+});
+
 after(async () => {
   if (app) await app.close();
   if (fakeAi?.listening) fakeAi.close();

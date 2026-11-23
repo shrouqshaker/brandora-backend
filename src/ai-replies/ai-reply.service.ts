@@ -140,11 +140,24 @@ export class AiReplyService {
       source?: string;
     } | null;
 
-    // Tell the owner when the customer wants to buy: she makes the order.
-    if (meta?.intent === 'PURCHASE_INTENT')
-      await this.notifier
-        .purchaseIntent(businessId, conversationId)
-        .catch(() => undefined);
+    // The customer wants to buy: an alert on the chat, and a notification
+    // the first time. She makes the order; nothing is ordered or taken here.
+    if (meta?.intent === 'PURCHASE_INTENT') {
+      const asked = await this.prisma.message.findFirstOrThrow({
+        where: { id: turn.messageId, businessId },
+        select: { createdAt: true },
+      });
+      const isNew = await this.conversations.markPurchaseIntent(
+        businessId,
+        conversationId,
+        turn.messageId,
+        asked.createdAt,
+      );
+      if (isNew)
+        await this.notifier
+          .purchaseIntent(businessId, conversationId)
+          .catch(() => undefined);
+    }
 
     // Human handoff: the AI goes quiet here; this last reply is still sent.
     if (meta?.requiresReview === true)

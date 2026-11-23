@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { AuthScope, CurrentUser, Identity } from '../auth/auth-policy';
+import { ApproveOrderDto } from './dto/approve-order.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ListOrdersDto } from './dto/list-orders.dto';
 import { RejectOrderDto } from './dto/reject-order.dto';
@@ -60,8 +61,14 @@ export class OrdersController {
     @Param('businessId', new ParseUUIDPipe()) businessId: string,
     @Param('orderId', new ParseUUIDPipe()) orderId: string,
     @CurrentUser() user: Identity,
+    @Body() dto: ApproveOrderDto,
   ) {
-    return this.orders.approve(businessId, orderId, user.id);
+    return this.orders.approve(
+      businessId,
+      orderId,
+      user.id,
+      dto.acceptCurrentPrices === true,
+    );
   }
 
   @Post(':orderId/reject')

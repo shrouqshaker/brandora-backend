@@ -368,6 +368,10 @@ model Conversation {
   lastMessageAt         DateTime?
   /// Last customer message; the owner may reply freely for 24 hours after it.
   lastCustomerMessageAt DateTime?
+  /// The owner's alert: the newest customer message the AI read as
+  /// PURCHASE_INTENT. Cleared when she makes an order from this chat.
+  purchaseMessageId     String?             @db.Uuid
+  purchaseIntentAt      DateTime?
   messages              Message[]
   orders                Order[]
   createdAt             DateTime            @default(now())

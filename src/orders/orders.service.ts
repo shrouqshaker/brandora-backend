@@ -45,6 +45,7 @@ export class OrdersService {
       where: { id: dto.sourceMessageId, businessId, senderType: 'CUSTOMER' },
       select: {
         conversationId: true,
+        createdAt: true,
         conversation: { select: { customerId: true } },
       },
     });
@@ -121,6 +122,16 @@ export class OrdersService {
         },
         include: orderInclude,
       });
+      // The chat's purchase alert is handled: the order is made from the
+      // message it points to, or from a newer one.
+      await this.prisma.conversation.updateMany({
+        where: {
+          id: source.conversationId,
+          businessId,
+          purchaseIntentAt: { lte: source.createdAt },
+        },
+        data: { purchaseMessageId: null, purchaseIntentAt: null },
+      });
       return { order: orderResponse(order), created: true };
     } catch (error: unknown) {
       // Two taps at the same moment: the first one won, return its order.
@@ -166,11 +177,14 @@ export class OrdersService {
   /**
    * PENDING_APPROVAL -> IN_PROGRESS and take the stock of every line, in ONE
    * transaction: all of it happens, or none of it (the order stays pending).
+   * Each line is checked again against the database first: product and
+   * variant still active in this business, today's price, enough stock.
    */
   async approve(
     businessId: string,
     orderId: string,
     userId: string,
+    acceptCurrentPrices = false,
   ): Promise<OrderView & { customerNotification: CustomerNotification }> {
     await this.prisma.$transaction(async (tx) => {
       // Only a pending order can move. Two taps at once: one wins, one gets 409.
@@ -184,11 +198,31 @@ export class OrdersService {
       });
       if (moved.count === 0)
         throw await this.whyNotPending(tx, businessId, orderId);
+      // Lines by product, then variant: two approvals that share products
+      // lock them in the same order, so they wait for each other, never deadlock.
       const items = await tx.orderItem.findMany({
         where: { businessId, orderId },
-        orderBy: { position: 'asc' },
+        orderBy: [{ productId: 'asc' }, { variantId: 'asc' }],
       });
-      for (const item of items)
+      let total = new Prisma.Decimal(0);
+      let repriced = false;
+      for (const item of items) {
+        const price = await this.priceToday(tx, businessId, item);
+        if (!price.equals(item.unitPrice)) {
+          if (!acceptCurrentPrices)
+            throw new AppHttpException(
+              ErrorCode.ORDER_PRICE_CHANGED,
+              HttpStatus.CONFLICT,
+              "A price changed since the order was made; approve with acceptCurrentPrices to use today's prices",
+            );
+          // Today's price becomes the order's snapshot.
+          await tx.orderItem.update({
+            where: { id: item.id },
+            data: { unitPrice: price, lineTotal: price.mul(item.quantity) },
+          });
+          repriced = true;
+        }
+        total = total.add(price.mul(item.quantity));
         // InventoryService, inside OUR transaction. item.id makes it
         // idempotent: the same line is never taken twice. Not enough stock ->
         // 409 INVENTORY_INSUFFICIENT_STOCK and everything above is undone.
@@ -198,6 +232,12 @@ export class OrdersService {
           item.quantity,
           item.id,
         );
+      }
+      if (repriced)
+        await tx.order.update({
+          where: { id: orderId },
+          data: { subtotal: total, total },
+        });
     });
     // After the commit: the customer hears "confirmed" only when it is true.
     return this.tellCustomer(
@@ -245,6 +285,38 @@ export class OrdersService {
         ? message.status
         : 'SENT';
     return { ...order, customerNotification };
+  }
+
+  /**
+   * The line's price right now, under the product row lock (the same lock,
+   * in the same order, as InventoryService): nobody can change the price or
+   * the stock until this transaction ends. 409 ORDER_ITEM_UNAVAILABLE when
+   * the product or the variant is gone, switched off, or has no price.
+   */
+  private async priceToday(
+    tx: Prisma.TransactionClient,
+    businessId: string,
+    item: { productId: string; variantId: string },
+  ): Promise<Prisma.Decimal> {
+    await tx.$queryRaw`
+      SELECT "id" FROM "Product"
+      WHERE "id"=${item.productId}::uuid AND "businessId"=${businessId}::uuid FOR UPDATE`;
+    const variant = await tx.productVariant.findFirst({
+      where: { id: item.variantId, productId: item.productId, businessId },
+      select: {
+        isActive: true,
+        unitPrice: true,
+        product: { select: { isActive: true, basePrice: true } },
+      },
+    });
+    const price = variant?.unitPrice ?? variant?.product.basePrice ?? null;
+    if (!variant?.isActive || !variant.product.isActive || price === null)
+      throw new AppHttpException(
+        ErrorCode.ORDER_ITEM_UNAVAILABLE,
+        HttpStatus.CONFLICT,
+        'A product in the order is inactive or has no price',
+      );
+    return new Prisma.Decimal(price);
   }
 
   /** 404 if it is not this business's order, 409 if it already moved on. */

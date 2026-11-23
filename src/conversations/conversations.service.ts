@@ -31,6 +31,8 @@ export const conversationSelect = {
   handoffAt: true,
   lastMessageAt: true,
   lastCustomerMessageAt: true,
+  purchaseMessageId: true,
+  purchaseIntentAt: true,
   createdAt: true,
   updatedAt: true,
   customer: { select: { id: true, phone: true, name: true } },
@@ -253,6 +255,28 @@ export class ConversationsService {
     const changed = await this.prisma.conversation.updateMany({
       where: { id: conversationId, businessId, aiEnabled: true },
       data: { aiEnabled: false, handoffReason: reason, handoffAt: new Date() },
+    });
+    return changed.count === 1;
+  }
+
+  /**
+   * The owner's alert "this customer wants to buy" (PURCHASE_INTENT). Only
+   * a newer customer message replaces it, so a late run never brings back an
+   * old one. True only when it changed: the owner is notified once.
+   */
+  async markPurchaseIntent(
+    businessId: string,
+    conversationId: string,
+    messageId: string,
+    at: Date,
+  ): Promise<boolean> {
+    const changed = await this.prisma.conversation.updateMany({
+      where: {
+        id: conversationId,
+        businessId,
+        OR: [{ purchaseIntentAt: null }, { purchaseIntentAt: { lt: at } }],
+      },
+      data: { purchaseMessageId: messageId, purchaseIntentAt: at },
     });
     return changed.count === 1;
   }

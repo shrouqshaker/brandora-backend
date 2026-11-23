@@ -314,16 +314,21 @@ them); there is nothing to poll except the normal conversations list.
 
 - Send: `POST .../conversations/:conversationId/messages` with `{ "content" }`
   (1-4096 after trimming). 201 with the message; `PENDING` = Meta was busy and
-  the backend tries again by itself (show "sending…"); show `FAILED` with a retry
-  option (a retry is a new message). `409 WHATSAPP_WINDOW_CLOSED`: "the customer has not written for 24
-  hours; WhatsApp does not allow a normal message now".
+  the backend tries again by itself (show "sending…"); show `FAILED` with a
+  retry option (a retry is a new message). `409 WHATSAPP_WINDOW_CLOSED`: "the
+  customer has not written for 24 hours; WhatsApp does not allow a normal
+  message now".
 - Switch: `PATCH .../conversations/:conversationId` with `{ "aiEnabled": false }`
   or `true`. Show `handoffReason` as a small banner when `aiEnabled` is false
   (`AI_REVIEW_REQUIRED`, `AI_UNAVAILABLE`, `MESSAGE_TOO_LONG`, `OWNER_TOOK_OVER`).
 - Sending a reply switches the AI off for that chat; the owner turns it back on.
-- `message.aiMeta.intent = "PURCHASE_INTENT"` on an AI message: show a
-  "Make order" button that opens the order form with that customer message's id
-  as `sourceMessageId` (see orders-api.md).
+- `conversation.purchaseMessageId` not null: show a "wants to buy" badge in the
+  inbox and a "Make order" button in the chat; open the order form with it as
+  `sourceMessageId` (see orders-api.md). It is cleared when the order is made.
+- Approve: `POST .../orders/:orderId/approve` with `{}`. On
+  `409 ORDER_PRICE_CHANGED` reload the order and the product, show the new
+  price, and approve again with `{ "acceptCurrentPrices": true }` if the owner
+  agrees.
 
 ## 4. Fields, enums and nulls
 
@@ -337,6 +342,8 @@ them); there is nothing to poll except the normal conversations list.
 | `conversation.handoffReason`         | string (for example `AI_REVIEW_REQUIRED`, later)                   | Yes                          |
 | `conversation.lastMessageAt`         | ISO-8601 UTC; time of `lastMessage` (any sender)                   | Yes (no messages yet)        |
 | `conversation.lastCustomerMessageAt` | ISO-8601 UTC                                                       | Yes                          |
+| `conversation.purchaseMessageId`     | customer message id (purchase alert)                               | Yes (nothing waiting)        |
+| `conversation.purchaseIntentAt`      | ISO-8601 UTC                                                       | Yes                          |
 | `lastMessage` (list only)            | message object                                                     | Yes                          |
 | `message.senderType`                 | `CUSTOMER`, `AI`, `OWNER`                                          | No                           |
 | `message.messageType`                | `TEXT`, `IMAGE`, `AUDIO`, `VIDEO`, `DOCUMENT`, `LOCATION`, `OTHER` | No                           |

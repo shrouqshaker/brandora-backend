@@ -228,6 +228,14 @@ The AI also steps back by itself (`aiEnabled: false`, the owner is notified once
 
 Conversations now also return `handoffAt` (null while the AI is on).
 
+**Purchase alert.** When the AI reads a customer message as `PURCHASE_INTENT`,
+the conversation gets `purchaseMessageId` (that customer message, ready to use
+as an order's `sourceMessageId`) and `purchaseIntentAt` (when the customer wrote
+it), and the owner is notified once. Only a newer customer message replaces
+them. Nothing is ordered and no stock is taken; the AI keeps answering (size,
+color...). Making an order from that message, or a newer one, clears both. Both
+are `null` when nothing waits.
+
 ## Test messages without Meta (local only)
 
 The temporary `POST /businesses/:businessId/dev/inbound-message` endpoint was

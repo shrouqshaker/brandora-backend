@@ -9,9 +9,12 @@ The AI service is read-only today: Malak's `/v2/ai/respond` always returns
 `orderCandidate: null`, and `src/ai` rejects any candidate. So the flow is:
 
 ```text
-customer writes -> AI answers (intent PURCHASE_INTENT -> owner is notified)
+customer writes -> AI answers (intent PURCHASE_INTENT -> owner is notified,
+                   the chat shows purchaseMessageId; no order, no stock taken)
  -> owner opens the chat and makes the order from that customer message
- -> PENDING_APPROVAL -> approve (stock is taken) or reject -> customer is told on WhatsApp
+    (the alert is cleared)
+ -> PENDING_APPROVAL -> approve (checked again, stock is taken) or reject
+ -> customer is told on WhatsApp
 ```
 
 The body is the E0-3 order candidate without its AI-only fields, so when the AI
@@ -35,7 +38,7 @@ may send candidates later the same `OrdersService.create` validates them.
 | POST   | `/businesses/:businessId/orders`                        | `{ sourceMessageId, items[], notes? }`      |
 | GET    | `/businesses/:businessId/orders?status=&limit=&offset=` | –                                           |
 | GET    | `/businesses/:businessId/orders/:orderId`               | –                                           |
-| POST   | `/businesses/:businessId/orders/:orderId/approve`       | –                                           |
+| POST   | `/businesses/:businessId/orders/:orderId/approve`       | `{ "acceptCurrentPrices"? }` (boolean)      |
 | POST   | `/businesses/:businessId/orders/:orderId/reject`        | `{ "reason"? }` (max 500, sent to customer) |
 
 Create body: `sourceMessageId` is a CUSTOMER message of this business; `items`
@@ -66,6 +69,16 @@ returned, so a double tap is safe).
 }
 ```
 
+Approve checks every line again inside its transaction, under the product
+lock: the product and variant are still active in this business, today's price
+(`unitPrice ?? basePrice`) equals the order's price, and the stock is enough.
+A changed price answers `409 ORDER_PRICE_CHANGED` and nothing changes; the app
+shows the new price and sends `{ "acceptCurrentPrices": true }` to approve at
+today's prices (they become the order's snapshot and its new total). Stock is
+taken in the same transaction, once per line (the line id is the inventory
+reference); two approvals at once, or two orders for the last unit, never
+take more than there is.
+
 Approve and reject answer the order plus `customerNotification`: `SENT`,
 `PENDING` (Meta was busy; it is tried again within about 3 minutes) or `FAILED`
 (Meta refused, for example after the 24-hour window). The decision is never
@@ -73,11 +86,16 @@ undone because of the message.
 
 Errors: `400 VALIDATION_ERROR`, `404 MESSAGE_NOT_FOUND`, `404 PRODUCT_NOT_FOUND`,
 `404 VARIANT_NOT_FOUND`, `404 ORDER_NOT_FOUND`, `409 ORDER_ITEM_UNAVAILABLE`,
-`409 ORDER_NOT_PENDING`, `409 INVENTORY_INSUFFICIENT_STOCK` (approve: nothing
-changes, the order stays pending), `409 INVENTORY_INACTIVE`.
+`409 ORDER_NOT_PENDING`, `409 ORDER_PRICE_CHANGED`,
+`409 INVENTORY_INSUFFICIENT_STOCK` (approve: nothing changes, the order stays
+pending), `409 INVENTORY_INACTIVE`.
 
 ## Tests
 
 `npm run test:whatsapp:postgres` tests 11-13: database prices, one order per
 message, LOW_STOCK, other owner 404, two approvals at once (one 200, one 409,
 stock taken once), all-or-nothing approve, reject with reason, confirmation text.
+Tests 31-36: the purchase alert (no order, no stock, cleared by the order), a
+changed price (409, then today's price), stock and product checked again, two
+approvals at once (one movement), the last unit (no overselling), two taps on
+create (one order per message).
