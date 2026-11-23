@@ -2,7 +2,8 @@
 
 `src/ai/` (Shrouq) signs the request, calls the AI service and checks its
 answer. This document covers the conversations side: the real
-`AiConversationStore` and the trigger that answers customers.
+`AiConversationStore` and the trigger that answers customers. The agreed
+request, answer and tools are on one page: [ai-contract.md](ai-contract.md).
 
 ## Flow
 
@@ -55,7 +56,7 @@ never secrets.
 | Requirement (docs/ai-integration.md)           | How                                                                                                |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | Attest the four identities, CUSTOMER/TEXT only | `current()` reads by `id + businessId + conversationId`, `senderType CUSTOMER`, `messageType TEXT` |
-| History strictly before the current message    | `createdAt < current.createdAt`, `createdAt DESC, id DESC`, 7 fields per row                       |
+| History strictly before the current message    | `createdAt < current.createdAt`, same customer, `createdAt DESC, id DESC`, 7 fields per row        |
 | Stable snapshot across pages                   | Messages never change and new ones are always later; `snapshot` = SHA-256 of the boundary          |
 | At most one AI reply per source message        | `Message.replyToMessageId` is unique; a repeat returns the first reply                             |
 

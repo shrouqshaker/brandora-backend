@@ -1080,6 +1080,322 @@ test('25. Meta gets its 200 only after the message is saved; images, voice notes
   assert.equal(calls(), 0);
 });
 
+// ---------------------------------------------------------------- What the AI may read
+const store = () =>
+  service('conversations/conversations-ai.store', 'ConversationsAiStore');
+/** A chat of its own, with the AI off so nothing answers it during these tests. */
+async function quietChat(phone, wamid, text = 'أول رسالة') {
+  const m = await storedWithoutAnswer(phone, wamid, text);
+  await sql.query('UPDATE "Conversation" SET "aiEnabled"=false WHERE id=$1', [
+    m.conversationId,
+  ]);
+  return m;
+}
+/** A message written straight into the table, at a chosen moment. */
+async function insertMessage(
+  conversationId,
+  { at, sender = 'CUSTOMER', type = 'TEXT', text = 'x', id = randomUUID() },
+) {
+  await sql.query(
+    `INSERT INTO "Message" (id, "businessId", "conversationId", "senderType", content, "messageType", status, "createdAt")
+     VALUES ($1, $2, $3, $4, $5, $6, $7, ($8::timestamptz AT TIME ZONE 'UTC'))`,
+    [
+      id,
+      bizA,
+      conversationId,
+      sender,
+      text,
+      type,
+      sender === 'CUSTOMER' ? 'RECEIVED' : 'SENT',
+      at.toISOString(),
+    ],
+  );
+  return id;
+}
+const hourAgo = (seconds) => new Date(Date.now() - 3600_000 + seconds * 1000);
+/** POST /internal/ai/data the way the AI service calls it. */
+async function aiTool(current, tool, args, headers = {}) {
+  const body = JSON.stringify({
+    businessId: current.businessId,
+    customerId: current.customerId,
+    conversationId: current.conversationId,
+    messageId: current.messageId,
+    message: current.message,
+  });
+  const context = service('ai/ai-security', 'AiSecurity').issue(current, body);
+  let r = http
+    .post('/internal/ai/data')
+    .set('Content-Type', 'application/json');
+  const all = {
+    Authorization: 'Bearer ' + BACKEND_TOKEN,
+    'X-AI-Context': context,
+    ...headers,
+  };
+  for (const [k, v] of Object.entries(all)) if (v !== null) r = r.set(k, v);
+  return r.send({ tool, arguments: args });
+}
+
+test('26. the AI store answers only inside one business, one customer and one chat', async () => {
+  const a = await quietChat('201000000026', 'wamid.iso-a', 'سؤال من منى');
+  const b = await quietChat('201000000126', 'wamid.iso-b', 'سؤال من هالة');
+  const current = await store().current(bizA, a.conversationId, a.id);
+  assert.equal(current.message, 'سؤال من منى');
+  const notFound = (e) => e.getStatus?.() === 404;
+  // Another business, another chat, a message that is not this chat's.
+  await assert.rejects(store().current(bizB, a.conversationId, a.id), notFound);
+  await assert.rejects(store().current(bizA, b.conversationId, a.id), notFound);
+  await assert.rejects(store().current(bizA, a.conversationId, b.id), notFound);
+  // Only a customer's text is answered: not the owner's, not an image.
+  const owner = await insertMessage(a.conversationId, {
+    at: new Date(),
+    sender: 'OWNER',
+  });
+  const image = await insertMessage(a.conversationId, {
+    at: new Date(),
+    type: 'IMAGE',
+    text: '[image]',
+  });
+  for (const id of [owner, image])
+    await assert.rejects(store().current(bizA, a.conversationId, id), notFound);
+  // History under A's message never shows B's chat, even with B's ids.
+  const later = {
+    ...current,
+    createdAt: new Date(Date.now() + 60_000).toISOString(),
+  };
+  const mine = await store().historyBefore(later, 20, 0);
+  assert.ok(mine.items.length >= 1);
+  assert.ok(mine.items.every((m) => m.conversationId === a.conversationId));
+  const bCustomer = (
+    await rows('SELECT "customerId" FROM "Conversation" WHERE id=$1', [
+      b.conversationId,
+    ])
+  )[0].customerId;
+  const mixed = await store().historyBefore(
+    { ...later, customerId: bCustomer },
+    20,
+    0,
+  );
+  assert.deepEqual(
+    mixed.items,
+    [],
+    'customer id and chat must belong together',
+  );
+});
+
+test('27. history: only before the current message, newest first, the same pages even while new messages arrive', async () => {
+  const c = await quietChat('201000000027', 'wamid.cut');
+  const t = (s) => hourAgo(s);
+  const first = await insertMessage(c.conversationId, {
+    at: t(0),
+    text: 'واحد',
+  });
+  const ai = await insertMessage(c.conversationId, {
+    at: t(1),
+    sender: 'AI',
+    text: 'اتنين',
+  });
+  const owner = await insertMessage(c.conversationId, {
+    at: t(2),
+    sender: 'OWNER',
+    text: 'تلاتة',
+  });
+  const now = await insertMessage(c.conversationId, {
+    at: t(3),
+    text: 'السؤال الحالي',
+  });
+  await insertMessage(c.conversationId, {
+    at: t(3),
+    sender: 'AI',
+    text: 'نفس اللحظة',
+  });
+  await insertMessage(c.conversationId, { at: t(4), text: 'بعده' });
+  const current = await store().current(bizA, c.conversationId, now);
+  const all = await store().historyBefore(current, 20, 0);
+  assert.deepEqual(
+    all.items.map((m) => m.id),
+    [owner, ai, first],
+    'before the current moment only, newest first',
+  );
+  const page1 = await store().historyBefore(current, 2, 0);
+  assert.deepEqual(
+    [
+      page1.items.map((m) => m.id),
+      page1.pagination.hasMore,
+      page1.pagination.nextOffset,
+    ],
+    [[owner, ai], true, 2],
+  );
+  await insertMessage(c.conversationId, {
+    at: new Date(),
+    text: 'رسالة جديدة',
+  });
+  const page2 = await store().historyBefore(current, 2, 2);
+  assert.deepEqual(
+    page2.items.map((m) => m.id),
+    [first],
+    'page 2 did not move',
+  );
+  // The same through the AI's tool endpoint (src/ai checks every row again).
+  const res = await aiTool(current, 'get_conversation_history', {
+    conversationId: c.conversationId,
+    limit: 20,
+    offset: 0,
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    res.body.data.items.map((m) => m.id),
+    [owner, ai, first],
+  );
+});
+
+test('28. equal timestamps: always the same order, and two customer turns at one moment fail closed', async () => {
+  const d = await quietChat('201000000028', 'wamid.same');
+  const at = hourAgo(10);
+  const [low, high] = [randomUUID(), randomUUID()].sort();
+  await insertMessage(d.conversationId, { at, text: 'قبل', id: low });
+  await insertMessage(d.conversationId, {
+    at,
+    sender: 'AI',
+    text: 'رد',
+    id: high,
+  });
+  const now = await insertMessage(d.conversationId, {
+    at: hourAgo(11),
+    text: 'الحالي',
+  });
+  const current = await store().current(bizA, d.conversationId, now);
+  for (let i = 0; i < 3; i++)
+    assert.deepEqual(
+      (await store().historyBefore(current, 20, 0)).items.map((m) => m.id),
+      [high, low],
+      'same moment: id decides, every time',
+    );
+  assert.equal(
+    (
+      await aiTool(current, 'get_conversation_history', {
+        conversationId: d.conversationId,
+      })
+    ).status,
+    200,
+  );
+
+  // Two customer messages at the very same moment: which came first is unknown.
+  const e = await quietChat('201000000128', 'wamid.same-2');
+  const tie = hourAgo(20);
+  await insertMessage(e.conversationId, { at: tie, text: 'أ' });
+  await insertMessage(e.conversationId, { at: tie, text: 'ب' });
+  const now2 = await insertMessage(e.conversationId, {
+    at: hourAgo(21),
+    text: 'الحالي',
+  });
+  const current2 = await store().current(bizA, e.conversationId, now2);
+  const unsure = await aiTool(current2, 'get_conversation_history', {
+    conversationId: e.conversationId,
+  });
+  assert.equal(unsure.status, 503, 'no guessed order is ever given to the AI');
+});
+
+test('29. /internal/ai/data refuses everything outside the read tools and the signed message', async () => {
+  const mine = await quietChat('201000000029', 'wamid.tools', 'عندكم إيه؟');
+  const current = await store().current(bizA, mine.conversationId, mine.id);
+  const other = await quietChat('201000000129', 'wamid.tools-2', 'سلام');
+  const otherCurrent = await store().current(
+    bizA,
+    other.conversationId,
+    other.id,
+  );
+  const theirs = await call('post', `/businesses/${bizB}/products`, {
+    body: { name: 'منتج محل تاني', basePrice: '99.00' },
+    status: 201,
+    as: ownerB,
+  });
+  const expect = async (status, tool, args, headers) =>
+    assert.equal(
+      (await aiTool(current, tool, args, headers)).status,
+      status,
+      `${tool} ${JSON.stringify(args)} ${JSON.stringify(headers ?? {})}`,
+    );
+  // No service credential, a wrong one, no signed context.
+  await expect(401, 'get_products', {}, { Authorization: null });
+  await expect(
+    401,
+    'get_products',
+    {},
+    { Authorization: 'Bearer ' + AI_TOKEN },
+  );
+  await expect(401, 'get_products', {}, { 'X-AI-Context': null });
+  // Unknown and write tools.
+  for (const tool of ['get_orders', 'update_stock', 'create_order'])
+    await expect(400, tool, {});
+  // get_business_info is kept (the AI does not call it today): this business only.
+  const info = await aiTool(current, 'get_business_info', {});
+  assert.equal(info.status, 200);
+  assert.equal(info.body.data.business.id, bizA);
+  // businessId, a URL or unknown arguments; bad pages.
+  for (const args of [
+    { businessId: bizB },
+    { url: 'https://evil.example/steal' },
+    { q: 'all' },
+    { limit: 0 },
+    { limit: 101 },
+    { offset: -1 },
+    { limit: '5' },
+  ])
+    await expect(400, 'get_products', args);
+  // Another business's product: not found under this context.
+  await expect(404, 'get_product_details', { productId: theirs.id });
+  // Another chat's history under this message's context.
+  await expect(401, 'get_conversation_history', {
+    conversationId: other.conversationId,
+  });
+  // A context signed for another message, used with this message's body: refused.
+  const forOther = JSON.stringify({
+    businessId: otherCurrent.businessId,
+    customerId: otherCurrent.customerId,
+    conversationId: otherCurrent.conversationId,
+    messageId: otherCurrent.messageId,
+    message: otherCurrent.message,
+  });
+  const otherContext = service('ai/ai-security', 'AiSecurity').issue(
+    otherCurrent,
+    forOther,
+  );
+  const tampered = otherContext.split('.');
+  tampered[1] = Buffer.from(
+    JSON.stringify({
+      ...JSON.parse(Buffer.from(tampered[1], 'base64url').toString()),
+      messageId: current.messageId,
+    }),
+  ).toString('base64url');
+  await expect(401, 'get_products', {}, { 'X-AI-Context': tampered.join('.') });
+  // What is allowed: this business's products only.
+  const ok = await aiTool(current, 'get_products', { limit: 100 });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.tool, 'get_products');
+  assert.ok(ok.body.data.items.length > 0);
+  assert.ok(ok.body.data.items.every((p) => p.businessId === bizA));
+});
+
+test('30. variant data: productId is the official name, catalogItemId stays the same value for older readers', async () => {
+  const mine = await quietChat('201000000030', 'wamid.dto', 'المقاسات؟');
+  const current = await store().current(bizA, mine.conversationId, mine.id);
+  const res = await aiTool(current, 'get_variant_details', {
+    productId: shirt.id,
+    variantId,
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.data.productId, shirt.id);
+  assert.equal(res.body.data.catalogItemId, shirt.id);
+  const list = await aiTool(current, 'get_product_variants', {
+    productId: shirt.id,
+  });
+  assert.ok(
+    list.body.data.items.every(
+      (v) => v.productId === shirt.id && v.catalogItemId === v.productId,
+    ),
+  );
+});
+
 after(async () => {
   if (app) await app.close();
   if (fakeAi?.listening) fakeAi.close();
