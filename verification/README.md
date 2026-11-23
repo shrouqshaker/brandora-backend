@@ -193,4 +193,9 @@ policy, 409 after an exhausted retry and the send-id conflict.
 WhatsApp: `npm run test:whatsapp:postgres` runs `whatsapp-postgres.cjs` on a new
 random localhost database: signed webhooks over real HTTP, one stored message
 per `wamid`, the business from the linked number only, one dry-run reply,
-forward-only delivery reports. `regressions/whatsapp-*.spec.ts` need no database.
+forward-only delivery reports. Tests 18-39 add the end-to-end requirements:
+one AI call and one send through repeats, Meta failures and restarts (the
+tests run `ReplyRecoveryService.sweep()` themselves), what the AI may read,
+purchase alerts, order re-checks, both end-to-end paths and clean logs
+([ai-e2e-delivery.md](../docs/ai-e2e-delivery.md)).
+`regressions/whatsapp-*.spec.ts` need no database.
