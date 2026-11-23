@@ -4,7 +4,6 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
-  Logger,
   Post,
   Query,
   Req,
@@ -12,24 +11,22 @@ import {
 } from '@nestjs/common';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { AiReplyService } from '../ai-replies/ai-reply.service';
 import { AuthScope } from '../auth/auth-policy';
 import { AppHttpException } from '../common/errors/app-http.exception';
 import { ErrorCode } from '../common/errors/error-code';
 import { sameSecret, WhatsAppSettings } from './whatsapp-settings';
 import { InboundWebhookService } from './inbound-webhook.service';
-import { WhatsAppSenderService } from './whatsapp-sender.service';
 import { isValidWhatsAppSignature } from './whatsapp-signature';
 
 /** Called by Meta, not by the mobile app. */
 @Controller('webhooks/whatsapp')
-@AuthScope('public') // Meta has no Brandora JWT; each handler checks Meta's own proof.
+@AuthScope('public')
 export class WhatsAppWebhookController {
-  private readonly logger = new Logger(WhatsAppWebhookController.name);
-
   constructor(
     private readonly settings: WhatsAppSettings,
     private readonly inbound: InboundWebhookService,
-    private readonly sender: WhatsAppSenderService,
+    private readonly replies: AiReplyService,
   ) {}
 
   /** Meta asks "is this URL yours?" once, when the webhook is saved. */
@@ -79,20 +76,9 @@ export class WhatsAppWebhookController {
       );
     // Store first, answer second: a 200 means "it is safe in our database".
     const stored = await this.inbound.store(req.body);
-    // Replies run in the background, after Meta has its 200.
-    // TEMPORARY test reply; Tab 3 replaces it with the AI's answer.
-    for (const m of stored)
-      void this.sender
-        .send({
-          businessId: m.businessId,
-          conversationId: m.conversationId,
-          senderType: 'AI',
-          content: 'وصلتنا رسالتك ✅',
-          aiMeta: { source: 'test' },
-        })
-        .catch((error: unknown) =>
-          this.logger.error('Reply failed', (error as Error).stack),
-        );
+    // Replies run in the background, after Meta has its 200
+    // (the AI can take seconds; Meta does not wait that long).
+    for (const turn of stored) void this.replies.answer(turn);
     return { received: true };
   }
 }

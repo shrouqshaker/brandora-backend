@@ -90,6 +90,7 @@ export class MessagesService {
     senderType: 'AI' | 'OWNER';
     content: string;
     aiMeta?: Prisma.InputJsonValue;
+    replyToMessageId?: string;
   }) {
     return this.prisma.$transaction(async (tx) => {
       const message = await tx.message.create({
@@ -139,6 +140,38 @@ export class MessagesService {
     }
     return this.prisma.message.findFirstOrThrow({
       where: { id, businessId },
+      select: messageSelect,
+    });
+  }
+
+  /**
+   * The AI's answer to one customer message, stored PENDING. At most one per
+   * customer message (unique replyToMessageId): a second call gets the first.
+   */
+  async createAiReply(data: {
+    businessId: string;
+    conversationId: string;
+    replyToMessageId: string;
+    content: string;
+    aiMeta: Prisma.InputJsonValue;
+  }): Promise<MessageView> {
+    try {
+      return await this.createOutbound({ ...data, senderType: 'AI' });
+    } catch (error: unknown) {
+      if (!isUniqueViolation(error)) throw error;
+      const first = await this.findReplyTo(
+        data.businessId,
+        data.replyToMessageId,
+      );
+      if (!first) throw error;
+      return first;
+    }
+  }
+
+  /** The AI reply already stored for this customer message, or null. */
+  findReplyTo(businessId: string, replyToMessageId: string) {
+    return this.prisma.message.findFirst({
+      where: { businessId, replyToMessageId },
       select: messageSelect,
     });
   }

@@ -391,6 +391,7 @@ model Message {
   status            MessageDeliveryStatus @default(RECEIVED)
   /// What the AI returned for AI messages: intent, orderCandidate, source…
   aiMeta            Json?                 @db.JsonB
+  replyToMessageId  String?               @unique @db.Uuid
   createdAt         DateTime              @default(now())
 
   @@index([businessId, conversationId, createdAt])
