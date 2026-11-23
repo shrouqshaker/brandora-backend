@@ -395,9 +395,18 @@ model Message {
   /// What the AI returned for AI messages: intent, orderCandidate, source…
   aiMeta            Json?                 @db.JsonB
   replyToMessageId  String?               @unique @db.Uuid
+  /// Customer messages: when a server took this message to the AI (a 2-minute lease), and how many times.
+  aiClaimedAt       DateTime?
+  aiAttempts        Int                   @default(0)
+  /// Our messages: when a send to Meta started (cleared when it ends), how many sends started, the next try.
+  sendClaimedAt     DateTime?
+  sendAttempts      Int                   @default(0)
+  nextSendAt        DateTime?
   createdAt         DateTime              @default(now())
 
   @@index([businessId, conversationId, createdAt])
+  /// The recovery pass looks for RECEIVED and PENDING messages of the last minutes.
+  @@index([status, createdAt])
 }
 
 enum MessageDeliveryStatus {

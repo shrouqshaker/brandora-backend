@@ -1,10 +1,10 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AiService } from '../ai/ai.service';
-import { AppHttpException } from '../common/errors/app-http.exception';
+import { safeError } from '../common/logging/safe-error';
 import { ConversationsService } from '../conversations/conversations.service';
 import { fitsAiLimit } from '../messages/message-limits';
-import { MessagesService } from '../messages/messages.service';
+import { MessagesService, MessageView } from '../messages/messages.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsAppSenderService } from '../whatsapp/whatsapp-sender.service';
 import { OWNER_NOTIFIER, OwnerNotifier } from './owner-notifier';
@@ -34,6 +34,10 @@ export interface CustomerTurn {
  * AiService does the AI part (signing, calling the AI, checking its
  * answer, saving it through ConversationsAiStore). This service only decides
  * and sends, and it never throws: the webhook must not fail because of a reply.
+ *
+ * Safe to call many times for the same message (repeated webhooks, two
+ * servers, the recovery pass): the AI is called by one run only, and a
+ * message that already has a reply is finished, never answered again.
  */
 @Injectable()
 export class AiReplyService {
@@ -53,31 +57,38 @@ export class AiReplyService {
     try {
       await this.answerOrThrow(turn);
     } catch (error: unknown) {
+      // Ids and an error code only: never the customer's text or a secret.
       this.logger.error(
-        `Could not answer message ${turn.messageId}`,
-        error instanceof Error ? error.stack : undefined,
+        `Could not answer message ${turn.messageId}: ${safeError(error)}`,
       );
     }
   }
 
-  private async answerOrThrow({
-    businessId,
-    conversationId,
-    messageId,
-  }: CustomerTurn): Promise<void> {
-    // 1) AI switched off for the whole backend, or the owner took this chat.
+  private async answerOrThrow(turn: CustomerTurn): Promise<void> {
+    const { businessId, conversationId, messageId } = turn;
+    // 1) AI switched off for the whole backend.
     if (this.config.get<string>('AI_INTEGRATION_ENABLED') !== 'true') return;
     const conversation = await this.conversations.getOne(
       businessId,
       conversationId,
     );
+
+    // 2) Already answered (a repeated webhook, another server, a restart):
+    //    finish that reply if it was not sent yet. Never make a second one.
+    const stored = await this.messages.findReplyTo(businessId, messageId);
+    if (stored) return this.finish(turn, stored);
+
+    // 3) The owner took this chat, or the AI stepped back: stay silent.
     if (!conversation.aiEnabled) return;
+
+    // 4) One run per customer message: only the run that claims it goes on.
+    if (!(await this.messages.claimForAi(businessId, messageId))) return;
 
     const customer = await this.prisma.message.findFirstOrThrow({
       where: { id: messageId, businessId, conversationId },
       select: { messageType: true, content: true },
     });
-    // 2) Not text: a fixed, polite answer without calling the AI.
+    // 5) Not text: a fixed, polite answer without calling the AI.
     if (customer.messageType !== 'TEXT') {
       const reply = await this.messages.createAiReply({
         businessId,
@@ -86,27 +97,22 @@ export class AiReplyService {
         content: NON_TEXT_REPLY,
         aiMeta: { intent: 'OTHER', requiresReview: false, source: 'backend' },
       });
-      await this.sender.deliver(businessId, reply.id);
-      return;
+      return this.finish(turn, reply);
     }
-    // 3) Longer than the AI accepts (2000): stored and shown, the owner answers.
+    // 6) Longer than the AI accepts (2000): stored and shown, the owner answers.
     if (!fitsAiLimit(customer.content)) {
       await this.handOff(businessId, conversationId, 'MESSAGE_TOO_LONG');
       return;
     }
 
-    // 4) The AI. On success the reply is already saved (PENDING) by the store.
+    // 7) The AI. On success the reply is already saved (PENDING) by the store.
     try {
       await this.ai.respond(businessId, { conversationId, messageId });
     } catch (error: unknown) {
-      const why =
-        error instanceof AppHttpException
-          ? `${error.getStatus()} ${error.code}`
-          : 'unexpected error';
-      this.logger.warn(`AI did not answer ${messageId}: ${why}`);
+      this.logger.warn(`AI did not answer ${messageId}: ${safeError(error)}`);
     }
-    // 5) The saved reply, or a safe fixed one. Unique per customer message,
-    //    so even a second run can never send two answers.
+    // 8) The saved reply, or a safe fixed one. Unique per customer message,
+    //    so even a second run can never store two answers.
     const reply =
       (await this.messages.findReplyTo(businessId, messageId)) ??
       (await this.messages.createAiReply({
@@ -116,20 +122,31 @@ export class AiReplyService {
         content: AI_FALLBACK_REPLY,
         aiMeta: { intent: 'OTHER', requiresReview: false, source: 'fallback' },
       }));
-    await this.sender.deliver(businessId, reply.id);
+    await this.finish(turn, reply);
+  }
 
-    // 6) Tell the owner when the customer wants to buy: she makes the order.
+  /**
+   * Everything after a reply is stored: tell the owner, hand off if needed,
+   * then send. It runs again when a stored reply was never sent (a restart),
+   * so each part happens once: startHandoff is true once, and deliver()
+   * sends a message at most once.
+   */
+  private async finish(turn: CustomerTurn, reply: MessageView): Promise<void> {
+    if (reply.status !== 'PENDING') return; // sent or failed before
+    const { businessId, conversationId } = turn;
     const meta = reply.aiMeta as {
       intent?: string;
       requiresReview?: boolean;
       source?: string;
     } | null;
+
+    // Tell the owner when the customer wants to buy: she makes the order.
     if (meta?.intent === 'PURCHASE_INTENT')
       await this.notifier
         .purchaseIntent(businessId, conversationId)
         .catch(() => undefined);
 
-    // 7) Human handoff: the reply above is sent, then the AI goes quiet here.
+    // Human handoff: the AI goes quiet here; this last reply is still sent.
     if (meta?.requiresReview === true)
       await this.handOff(businessId, conversationId, 'AI_REVIEW_REQUIRED');
     else if (meta?.source === 'fallback') {
@@ -142,6 +159,8 @@ export class AiReplyService {
       if (was === 'fallback')
         await this.handOff(businessId, conversationId, 'AI_UNAVAILABLE');
     }
+
+    await this.sender.deliver(businessId, reply.id);
   }
 
   /** Switch the AI off here and tell the owner, once (startHandoff is true once). */

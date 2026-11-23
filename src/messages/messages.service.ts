@@ -32,6 +32,11 @@ type DeliveryUpdate = 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
 
 const { PENDING, SENT, DELIVERED, FAILED } = MessageDeliveryStatus;
 
+/** How long one AI run may hold a customer message (the AI call stops after 30 seconds). */
+export const AI_LEASE_MS = 2 * 60 * 1000;
+/** A customer message goes to the AI twice at most: again only if the first run crashed. */
+export const AI_MAX_ATTEMPTS = 2;
+
 /**
  * For each new status: the statuses a message is allowed to move from.
  * SENT -> DELIVERED -> READ only moves forward. FAILED only before delivery,
@@ -166,6 +171,29 @@ export class MessagesService {
       if (!first) throw error;
       return first;
     }
+  }
+
+  /**
+   * Takes a customer message for the AI. True for one caller only: a repeated
+   * webhook, a second server or the recovery pass get false while the first
+   * run holds it. A run that crashed lets go after AI_LEASE_MS.
+   */
+  async claimForAi(businessId: string, messageId: string): Promise<boolean> {
+    const now = new Date();
+    const { count } = await this.prisma.message.updateMany({
+      where: {
+        id: messageId,
+        businessId,
+        senderType: MessageSenderType.CUSTOMER,
+        aiAttempts: { lt: AI_MAX_ATTEMPTS },
+        OR: [
+          { aiClaimedAt: null },
+          { aiClaimedAt: { lt: new Date(now.getTime() - AI_LEASE_MS) } },
+        ],
+      },
+      data: { aiClaimedAt: now, aiAttempts: { increment: 1 } },
+    });
+    return count === 1;
   }
 
   /** The AI reply already stored for this customer message, or null. */
