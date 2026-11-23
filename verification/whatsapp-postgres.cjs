@@ -153,6 +153,8 @@ before(
       WHATSAPP_VERIFY_TOKEN: VERIFY,
       WHATSAPP_APP_SECRET: SECRET,
       WHATSAPP_DRY_RUN: 'true',
+      // The tests run the recovery pass themselves (like a restart).
+      REPLY_RECOVERY_SECONDS: '0',
       AI_INTEGRATION_ENABLED: 'true',
       AI_BASE_URL: `http://127.0.0.1:${fakeAi.address().port}`,
       AI_SERVICE_TOKEN: AI_TOKEN,

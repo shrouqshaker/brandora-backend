@@ -18,8 +18,8 @@ import {
   OrderView,
 } from './order-presenter';
 
-/** Did the customer get the WhatsApp message about the decision? */
-export type CustomerNotification = 'SENT' | 'FAILED';
+/** Did the customer get the WhatsApp message about the decision? PENDING = Meta was busy, it is tried again. */
+export type CustomerNotification = 'SENT' | 'PENDING' | 'FAILED';
 
 @Injectable()
 export class OrdersService {
@@ -241,7 +241,9 @@ export class OrdersService {
       aiMeta: { intent: 'ORDER_STATUS', orderId: order.id, source: 'backend' },
     });
     const customerNotification: CustomerNotification =
-      message.status === 'FAILED' ? 'FAILED' : 'SENT';
+      message.status === 'FAILED' || message.status === 'PENDING'
+        ? message.status
+        : 'SENT';
     return { ...order, customerNotification };
   }
 
