@@ -78,6 +78,7 @@ export class WhatsAppWebhookController {
     const stored = await this.inbound.store(req.body);
     // Replies run in the background, after Meta has its 200
     // (the AI can take seconds; Meta does not wait that long).
+    // Repeats too: answer() skips a message that is answered or in progress.
     for (const turn of stored) void this.replies.answer(turn);
     return { received: true };
   }

@@ -8,15 +8,16 @@ and Railway is deployed, use a local test backend agreed with Yomna.
 
 ## 1. What is ready, test-only, or not built
 
-| Area                                           | State         | Android uses it?  |
-| ---------------------------------------------- | ------------- | ----------------- |
-| Customers list and details                     | Ready         | Yes               |
-| Conversations list (inbox) and details         | Ready         | Yes               |
-| Messages of a conversation                     | Ready         | Yes               |
-| WhatsApp webhook (real customer messages)      | Ready (local) | No (server-side)  |
-| Linking the WhatsApp number (owner setting)    | Ready (local) | Yes (settings)    |
-| Sending a reply from the app, AI on/off toggle | Not built yet | Later             |
-| AI service integration (`/internal/ai/...`)    | Not built yet | **No** (internal) |
+| Area                                           | State         | Android uses it?    |
+| ---------------------------------------------- | ------------- | ------------------- |
+| Customers list and details                     | Ready         | Yes                 |
+| Conversations list (inbox) and details         | Ready         | Yes                 |
+| Messages of a conversation                     | Ready         | Yes                 |
+| WhatsApp webhook (real customer messages)      | Ready (local) | No (server-side)    |
+| Linking the WhatsApp number (owner setting)    | Ready (local) | Yes (settings)      |
+| Sending a reply from the app, AI on/off toggle | Ready (local) | Yes (chat screen)   |
+| Orders from a customer message                 | Ready (local) | Yes (orders-api.md) |
+| AI service integration (`/internal/ai/...`)    | Ready (local) | **No** (internal)   |
 
 Android never needs Meta, WhatsApp or AI keys. Do not call internal or dev routes.
 
@@ -309,6 +310,26 @@ The owner links her business to its WhatsApp number once. The value is Meta's
 Customer messages then appear in the inbox by themselves (the webhook stores
 them); there is nothing to poll except the normal conversations list.
 
+## 3c. Chat screen: reply and AI switch
+
+- Send: `POST .../conversations/:conversationId/messages` with `{ "content" }`
+  (1-4096 after trimming). 201 with the message; `PENDING` = Meta was busy and
+  the backend tries again by itself (show "sending…"); show `FAILED` with a
+  retry option (a retry is a new message). `409 WHATSAPP_WINDOW_CLOSED`: "the
+  customer has not written for 24 hours; WhatsApp does not allow a normal
+  message now".
+- Switch: `PATCH .../conversations/:conversationId` with `{ "aiEnabled": false }`
+  or `true`. Show `handoffReason` as a small banner when `aiEnabled` is false
+  (`AI_REVIEW_REQUIRED`, `AI_UNAVAILABLE`, `MESSAGE_TOO_LONG`, `OWNER_TOOK_OVER`).
+- Sending a reply switches the AI off for that chat; the owner turns it back on.
+- `conversation.purchaseMessageId` not null: show a "wants to buy" badge in the
+  inbox and a "Make order" button in the chat; open the order form with it as
+  `sourceMessageId` (see orders-api.md). It is cleared when the order is made.
+- Approve: `POST .../orders/:orderId/approve` with `{}`. On
+  `409 ORDER_PRICE_CHANGED` reload the order and the product, show the new
+  price, and approve again with `{ "acceptCurrentPrices": true }` if the owner
+  agrees.
+
 ## 4. Fields, enums and nulls
 
 | Field                                | Type / values                                                      | Can be null?                 |
@@ -321,6 +342,8 @@ them); there is nothing to poll except the normal conversations list.
 | `conversation.handoffReason`         | string (for example `AI_REVIEW_REQUIRED`, later)                   | Yes                          |
 | `conversation.lastMessageAt`         | ISO-8601 UTC; time of `lastMessage` (any sender)                   | Yes (no messages yet)        |
 | `conversation.lastCustomerMessageAt` | ISO-8601 UTC                                                       | Yes                          |
+| `conversation.purchaseMessageId`     | customer message id (purchase alert)                               | Yes (nothing waiting)        |
+| `conversation.purchaseIntentAt`      | ISO-8601 UTC                                                       | Yes                          |
 | `lastMessage` (list only)            | message object                                                     | Yes                          |
 | `message.senderType`                 | `CUSTOMER`, `AI`, `OWNER`                                          | No                           |
 | `message.messageType`                | `TEXT`, `IMAGE`, `AUDIO`, `VIDEO`, `DOCUMENT`, `LOCATION`, `OTHER` | No                           |

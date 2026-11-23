@@ -19,7 +19,11 @@ const SKIP_FOR_GOOD = new Set<string>([
   ErrorCode.EXTERNAL_MESSAGE_ID_CONFLICT,
 ]);
 
-/** A customer message that was stored just now (not a repeat). */
+/**
+ * A customer message from this webhook: stored just now, or a repeat Meta
+ * sent again. Both are answered: AiReplyService never answers one twice,
+ * and a repeat finishes an answer that a restart interrupted.
+ */
 export interface StoredInbound {
   businessId: string;
   conversationId: string;
@@ -65,10 +69,8 @@ export class InboundWebhookService {
           content: m.content,
           messageType: m.messageType,
         });
-        if (result.duplicate) {
-          this.logger.log(`Duplicate ${m.externalMessageId} ignored`);
-          continue;
-        }
+        if (result.duplicate)
+          this.logger.log(`Duplicate ${m.externalMessageId}: stored once`);
         stored.push({
           businessId,
           conversationId: result.conversation.id,

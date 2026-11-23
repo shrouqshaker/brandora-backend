@@ -327,8 +327,8 @@ describe('Complete controller authorization policy inventory', () => {
         'WhatsAppWebhookController.receive', // Meta: HMAC signature
       ]).toContain(label);
   });
-  it('covers 60 endpoints including owner-only images, the WhatsApp webhook and the separately guarded internal AI boundary', () => {
-    expect(routes).toHaveLength(60);
+  it('covers 67 endpoints including owner-only images, the WhatsApp webhook and the separately guarded internal AI boundary', () => {
+    expect(routes).toHaveLength(67);
     expect(routes.filter((route) => route.scope === 'public')).toHaveLength(10);
   });
 });

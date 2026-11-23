@@ -63,6 +63,7 @@ Image recognition, Orders and permanent Excel file storage remain deferred.
 - [Inventory](docs/inventory-api.md) / [Excel imports](docs/imports-api.md)
 - [AI security and contracts](docs/ai-integration.md)
 - [Local AI / Postman testing](docs/ai-local-testing.md)
+- [Orders](docs/orders-api.md)
 - [WhatsApp webhook and sending](docs/whatsapp-api.md)
 - [Railway proxy security](docs/railway-proxy-security.md)
 - [Shared error contract](docs/api-errors.md)

@@ -30,7 +30,20 @@ export type MessageView = Prisma.MessageGetPayload<{
 
 type DeliveryUpdate = 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
 
+/** How one send ended: Meta's id, FAILED for good, or RETRY later (only when Meta surely did not take it). */
+export type SendResult = { externalMessageId: string } | 'FAILED' | 'RETRY';
+
 const { PENDING, SENT, DELIVERED, FAILED } = MessageDeliveryStatus;
+
+/** How long one AI run may hold a customer message (the AI call stops after 30 seconds). */
+export const AI_LEASE_MS = 2 * 60 * 1000;
+/** A customer message goes to the AI twice at most: again only if the first run crashed. */
+export const AI_MAX_ATTEMPTS = 2;
+/** A send that started and never ended (the server stopped mid-call) is given up after this. */
+export const SEND_LEASE_MS = 2 * 60 * 1000;
+/** Sends started for one message, at most: now, then after each delay below. */
+export const SEND_MAX_ATTEMPTS = 3;
+export const SEND_RETRY_DELAYS_MS = [30 * 1000, 2 * 60 * 1000];
 
 /**
  * For each new status: the statuses a message is allowed to move from.
@@ -111,22 +124,62 @@ export class MessagesService {
   }
 
   /**
-   * After the send attempt: SENT with WhatsApp's id, or FAILED.
+   * Takes a PENDING message for one send. Returns the try number (1, 2, 3)
+   * to exactly one caller, or null when someone is sending it now, it waits
+   * for its next try (nextSendAt), or it is out of tries.
+   */
+  async claimForSending(
+    businessId: string,
+    id: string,
+  ): Promise<number | null> {
+    const now = new Date();
+    const [claimed] = await this.prisma.message.updateManyAndReturn({
+      where: {
+        id,
+        businessId,
+        status: PENDING,
+        sendClaimedAt: null,
+        sendAttempts: { lt: SEND_MAX_ATTEMPTS },
+        OR: [{ nextSendAt: null }, { nextSendAt: { lte: now } }],
+      },
+      data: { sendClaimedAt: now, sendAttempts: { increment: 1 } },
+      select: { sendAttempts: true },
+    });
+    return claimed?.sendAttempts ?? null;
+  }
+
+  /**
+   * After the send attempt: SENT with WhatsApp's id, FAILED, or still
+   * PENDING with the time of the next try (RETRY; FAILED after the last try).
    * Only changes a PENDING message of this business, so a retry or a late
    * call can never overwrite a status that already moved on.
    */
   async markSendResult(
     businessId: string,
     id: string,
-    result: { externalMessageId: string } | 'FAILED',
+    result: SendResult,
+    attempt = 1,
   ) {
+    const failed =
+      result === 'FAILED' ||
+      (result === 'RETRY' && attempt >= SEND_MAX_ATTEMPTS);
     try {
       await this.prisma.message.updateMany({
         where: { id, businessId, status: PENDING },
-        data:
-          result === 'FAILED'
-            ? { status: FAILED }
-            : { status: SENT, externalMessageId: result.externalMessageId },
+        data: failed
+          ? { status: FAILED, sendClaimedAt: null }
+          : result === 'RETRY'
+            ? {
+                sendClaimedAt: null,
+                nextSendAt: new Date(
+                  Date.now() + SEND_RETRY_DELAYS_MS[attempt - 1],
+                ),
+              }
+            : {
+                status: SENT,
+                externalMessageId: result.externalMessageId,
+                sendClaimedAt: null,
+              },
       });
     } catch (error: unknown) {
       if (!isUniqueViolation(error)) throw error;
@@ -168,10 +221,51 @@ export class MessagesService {
     }
   }
 
+  /**
+   * Takes a customer message for the AI. True for one caller only: a repeated
+   * webhook, a second server or the recovery pass get false while the first
+   * run holds it. A run that crashed lets go after AI_LEASE_MS.
+   */
+  async claimForAi(businessId: string, messageId: string): Promise<boolean> {
+    const now = new Date();
+    const { count } = await this.prisma.message.updateMany({
+      where: {
+        id: messageId,
+        businessId,
+        senderType: MessageSenderType.CUSTOMER,
+        aiAttempts: { lt: AI_MAX_ATTEMPTS },
+        OR: [
+          { aiClaimedAt: null },
+          { aiClaimedAt: { lt: new Date(now.getTime() - AI_LEASE_MS) } },
+        ],
+      },
+      data: { aiClaimedAt: now, aiAttempts: { increment: 1 } },
+    });
+    return count === 1;
+  }
+
   /** The AI reply already stored for this customer message, or null. */
   findReplyTo(businessId: string, replyToMessageId: string) {
     return this.prisma.message.findFirst({
       where: { businessId, replyToMessageId },
+      select: messageSelect,
+    });
+  }
+
+  /** The AI message sent just before `exceptId` in this conversation, if any. */
+  previousAiReply(
+    businessId: string,
+    conversationId: string,
+    exceptId: string,
+  ) {
+    return this.prisma.message.findFirst({
+      where: {
+        businessId,
+        conversationId,
+        senderType: MessageSenderType.AI,
+        id: { not: exceptId },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: messageSelect,
     });
   }

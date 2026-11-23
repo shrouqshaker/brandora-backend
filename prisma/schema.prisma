@@ -27,6 +27,7 @@ model Business {
   conversations      Conversation[]
   messages           Message[]
   whatsappConnection WhatsAppConnection?
+  orders             Order[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 }
@@ -342,6 +343,7 @@ model Customer {
   phone         String         @db.VarChar(20)
   name          String?        @db.VarChar(200)
   conversations Conversation[]
+  orders        Order[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
@@ -366,7 +368,12 @@ model Conversation {
   lastMessageAt         DateTime?
   /// Last customer message; the owner may reply freely for 24 hours after it.
   lastCustomerMessageAt DateTime?
+  /// The owner's alert: the newest customer message the AI read as
+  /// PURCHASE_INTENT. Cleared when she makes an order from this chat.
+  purchaseMessageId     String?             @db.Uuid
+  purchaseIntentAt      DateTime?
   messages              Message[]
+  orders                Order[]
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
 
@@ -392,9 +399,18 @@ model Message {
   /// What the AI returned for AI messages: intent, orderCandidate, source…
   aiMeta            Json?                 @db.JsonB
   replyToMessageId  String?               @unique @db.Uuid
+  /// Customer messages: when a server took this message to the AI (a 2-minute lease), and how many times.
+  aiClaimedAt       DateTime?
+  aiAttempts        Int                   @default(0)
+  /// Our messages: when a send to Meta started (cleared when it ends), how many sends started, the next try.
+  sendClaimedAt     DateTime?
+  sendAttempts      Int                   @default(0)
+  nextSendAt        DateTime?
   createdAt         DateTime              @default(now())
 
   @@index([businessId, conversationId, createdAt])
+  /// The recovery pass looks for RECEIVED and PENDING messages of the last minutes.
+  @@index([status, createdAt])
 }
 
 enum MessageDeliveryStatus {
@@ -417,4 +433,64 @@ model WhatsAppConnection {
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+enum OrderStatus {
+  PENDING_APPROVAL
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+/// A customer's order. Prices are copied from the database when it is made.
+model Order {
+  id               String       @id @default(uuid()) @db.Uuid
+  businessId       String       @db.Uuid
+  business         Business     @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  customerId       String       @db.Uuid
+  customer         Customer     @relation(fields: [businessId, customerId], references: [businessId, id], onDelete: Restrict, onUpdate: Restrict)
+  conversationId   String       @db.Uuid
+  conversation     Conversation @relation(fields: [businessId, conversationId], references: [businessId, id], onDelete: Restrict, onUpdate: Restrict)
+  /// The customer message the order was made from. Unique: one order per message.
+  sourceMessageId  String       @unique @db.Uuid
+  status           OrderStatus  @default(PENDING_APPROVAL)
+  currency         String       @default("EGP") @db.VarChar(3)
+  subtotal         Decimal      @db.Decimal(12, 2)
+  total            Decimal      @db.Decimal(12, 2)
+  notes            String?      @db.VarChar(500)
+  /// A warning for the owner (e.g. LOW_STOCK), not a status.
+  requiresReview   Boolean      @default(false)
+  reviewReason     String?      @db.VarChar(100)
+  createdByUserId  String?      @db.Uuid
+  approvedAt       DateTime?
+  approvedByUserId String?      @db.Uuid
+  cancelledAt      DateTime?
+  cancelReason     String?      @db.VarChar(500)
+  items            OrderItem[]
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@unique([businessId, id])
+  @@index([businessId, status, createdAt])
+}
+
+/// One line of an order: a copy (snapshot) of the product as it was then.
+model OrderItem {
+  id              String  @id @default(uuid()) @db.Uuid
+  businessId      String  @db.Uuid
+  orderId         String  @db.Uuid
+  order           Order   @relation(fields: [businessId, orderId], references: [businessId, id], onDelete: Restrict, onUpdate: Restrict)
+  /// 1, 2, 3...: the order the owner listed the lines in.
+  position        Int
+  /// Plain ids, no foreign key: changing or removing a product never breaks old orders.
+  productId       String  @db.Uuid
+  variantId       String  @db.Uuid
+  productName     String  @db.VarChar(200)
+  selectedOptions Json    @default("{}") @db.JsonB
+  unitPrice       Decimal @db.Decimal(12, 2)
+  quantity        Int
+  lineTotal       Decimal @db.Decimal(12, 2)
+
+  @@unique([orderId, position])
+  @@index([businessId, orderId])
 }

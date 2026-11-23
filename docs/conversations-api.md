@@ -194,10 +194,47 @@ Our own messages (AI or owner) are stored as `PENDING` before sending. The send
 result only changes a `PENDING` message of the same business: `SENT` with
 WhatsApp's id, or `FAILED`. A WhatsApp id that is already stored on another
 message answers `409 EXTERNAL_MESSAGE_ID_CONFLICT` and the message stays
-`PENDING`. A `FAILED` message is never sent again as the same row; a retry is a
-new message (who sends and when is decided with the WhatsApp work).
+`PENDING`. While Meta is busy a message stays `PENDING` and is tried again (3
+tries in total, [retry policy](ai-replies.md#send-retry-policy)). A `FAILED`
+message is never sent again as the same row; sending it again is a new message.
 
 Errors: same as Conversations.
+
+## Human handoff (owner takes over)
+
+| Method | Path                                                             | Body                    |
+| ------ | ---------------------------------------------------------------- | ----------------------- |
+| PATCH  | `/businesses/:businessId/conversations/:conversationId`          | `{ "aiEnabled": bool }` |
+| POST   | `/businesses/:businessId/conversations/:conversationId/messages` | `{ "content": "..." }`  |
+
+`PATCH` answers the conversation. `false` sets `handoffReason: "OWNER_TOOK_OVER"`
+and `handoffAt`; `true` clears both and the AI answers again. Only booleans are
+accepted (`400 VALIDATION_ERROR`).
+
+`POST .../messages` sends the owner's text on WhatsApp (1-4096 characters after
+trimming) and answers **201** with the stored message (`status` `SENT` or
+`FAILED`). The AI steps back first (`OWNER_TOOK_OVER`), so the AI and the owner
+never both answer. More than 24 hours after the customer's last message,
+WhatsApp only allows paid templates: `409 WHATSAPP_WINDOW_CLOSED`.
+
+The AI also steps back by itself (`aiEnabled: false`, the owner is notified once):
+
+| `handoffReason`      | When                                                                                         |
+| -------------------- | -------------------------------------------------------------------------------------------- |
+| `AI_REVIEW_REQUIRED` | The AI's answer had `requiresReview: true` (complaint, shortage...); its reply is still sent |
+| `AI_UNAVAILABLE`     | The AI failed twice in a row (two fixed fallback replies)                                    |
+| `MESSAGE_TOO_LONG`   | The customer wrote more than 2000 characters                                                 |
+| `OWNER_TOOK_OVER`    | The owner switched it off or replied herself                                                 |
+
+Conversations now also return `handoffAt` (null while the AI is on).
+
+**Purchase alert.** When the AI reads a customer message as `PURCHASE_INTENT`,
+the conversation gets `purchaseMessageId` (that customer message, ready to use
+as an order's `sourceMessageId`) and `purchaseIntentAt` (when the customer wrote
+it), and the owner is notified once. Only a newer customer message replaces
+them. Nothing is ordered and no stock is taken; the AI keeps answering (size,
+color...). Making an order from that message, or a newer one, clears both. Both
+are `null` when nothing waits.
 
 ## Test messages without Meta (local only)
 

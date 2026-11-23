@@ -70,6 +70,9 @@ export class ConversationsAiStore extends AiConversationStore {
     const where = {
       businessId: message.businessId,
       conversationId: message.conversationId,
+      // Also the same customer: a conversation of another customer, even in
+      // this business, can never be read under this message's context.
+      conversation: { customerId: message.customerId },
       createdAt: { lt: new Date(message.createdAt) },
     };
     const totalCount = await this.prisma.message.count({ where });

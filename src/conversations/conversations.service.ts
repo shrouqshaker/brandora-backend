@@ -16,6 +16,7 @@ import {
   Prisma,
 } from '../generated/prisma/client';
 import { MessagesService, messageSelect } from '../messages/messages.service';
+import { WhatsAppSenderService } from '../whatsapp/whatsapp-sender.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ListConversationsDto } from './dto/list-conversations.dto';
 
@@ -27,8 +28,11 @@ export const conversationSelect = {
   status: true,
   aiEnabled: true,
   handoffReason: true,
+  handoffAt: true,
   lastMessageAt: true,
   lastCustomerMessageAt: true,
+  purchaseMessageId: true,
+  purchaseIntentAt: true,
   createdAt: true,
   updatedAt: true,
   customer: { select: { id: true, phone: true, name: true } },
@@ -55,6 +59,8 @@ export interface IngestResult {
 }
 
 const MAX_ATTEMPTS = 2;
+/** WhatsApp lets a business write freely for 24 hours after the customer's last message. */
+const CUSTOMER_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class ConversationsService {
@@ -62,6 +68,7 @@ export class ConversationsService {
     private readonly prisma: PrismaService,
     private readonly customers: CustomersService,
     private readonly messages: MessagesService,
+    private readonly sender: WhatsAppSenderService,
   ) {}
 
   /**
@@ -211,6 +218,93 @@ export class ConversationsService {
       conversationId,
       pagination,
     );
+  }
+
+  /**
+   * The owner's switch in the app. Off = she answers herself (OWNER_TOOK_OVER).
+   * Only changes a conversation that is not already in that state, so turning
+   * it off twice keeps the first reason.
+   */
+  async setAiEnabled(
+    businessId: string,
+    conversationId: string,
+    aiEnabled: boolean,
+  ) {
+    await this.prisma.conversation.updateMany({
+      where: { id: conversationId, businessId, aiEnabled: !aiEnabled },
+      data: aiEnabled
+        ? { aiEnabled: true, handoffReason: null, handoffAt: null }
+        : {
+            aiEnabled: false,
+            handoffReason: 'OWNER_TOOK_OVER',
+            handoffAt: new Date(),
+          },
+    });
+    return this.getOne(businessId, conversationId); // 404 if not this business's
+  }
+
+  /**
+   * The AI steps back in this conversation. True only for the call that
+   * actually switched it off, so the owner is notified once, not per message.
+   */
+  async startHandoff(
+    businessId: string,
+    conversationId: string,
+    reason: string,
+  ): Promise<boolean> {
+    const changed = await this.prisma.conversation.updateMany({
+      where: { id: conversationId, businessId, aiEnabled: true },
+      data: { aiEnabled: false, handoffReason: reason, handoffAt: new Date() },
+    });
+    return changed.count === 1;
+  }
+
+  /**
+   * The owner's alert "this customer wants to buy" (PURCHASE_INTENT). Only
+   * a newer customer message replaces it, so a late run never brings back an
+   * old one. True only when it changed: the owner is notified once.
+   */
+  async markPurchaseIntent(
+    businessId: string,
+    conversationId: string,
+    messageId: string,
+    at: Date,
+  ): Promise<boolean> {
+    const changed = await this.prisma.conversation.updateMany({
+      where: {
+        id: conversationId,
+        businessId,
+        OR: [{ purchaseIntentAt: null }, { purchaseIntentAt: { lt: at } }],
+      },
+      data: { purchaseMessageId: messageId, purchaseIntentAt: at },
+    });
+    return changed.count === 1;
+  }
+
+  /**
+   * The owner writes to the customer from the app. The AI steps back first
+   * (OWNER_TOOK_OVER), so two voices never answer the same customer.
+   */
+  async ownerReply(
+    businessId: string,
+    conversationId: string,
+    content: string,
+  ) {
+    const conversation = await this.getOne(businessId, conversationId);
+    const last = conversation.lastCustomerMessageAt;
+    if (!last || Date.now() - last.getTime() > CUSTOMER_WINDOW_MS)
+      throw new AppHttpException(
+        ErrorCode.WHATSAPP_WINDOW_CLOSED,
+        HttpStatus.CONFLICT,
+        'More than 24 hours since the customer last wrote; WhatsApp only allows templates now',
+      );
+    await this.startHandoff(businessId, conversationId, 'OWNER_TOOK_OVER');
+    return this.sender.send({
+      businessId,
+      conversationId,
+      senderType: 'OWNER',
+      content,
+    });
   }
 
   private async findDuplicate(
