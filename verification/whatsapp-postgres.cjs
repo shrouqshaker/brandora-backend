@@ -763,6 +763,323 @@ test('17. the AI fails twice in a row: the conversation goes to the owner', asyn
   }
 });
 
+// ---------------------------------------------------------------- Once only, even after a restart
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Counts POST /v2/ai/respond on the fake AI from now on. Call the result to read it. */
+function countAiCalls() {
+  let n = 0;
+  const server = fakeAi;
+  const on = (req) => {
+    if (req.url === '/v2/ai/respond') n++;
+  };
+  server.on('request', on);
+  return () => n;
+}
+const service = (file, name) => app.get(require(`../dist/${file}`)[name]);
+const recovery = () =>
+  service('ai-replies/reply-recovery.service', 'ReplyRecoveryService');
+const sender = () =>
+  service('whatsapp/whatsapp-sender.service', 'WhatsAppSenderService');
+const { SendFailure } = (() => {
+  try {
+    return require('../dist/whatsapp/whatsapp-sender.service');
+  } catch {
+    return {};
+  }
+})();
+const replyRow = async (customerMessageId) =>
+  (
+    await rows(
+      `SELECT id, status, "sendAttempts", "sendClaimedAt", "nextSendAt", "aiMeta" FROM "Message" WHERE "replyToMessageId"=$1`,
+      [customerMessageId],
+    )
+  )[0];
+/** A customer message stored the way the webhook stores it, but nobody answered (the server stopped). */
+async function storedWithoutAnswer(phone, wamid, text) {
+  const conversations = service(
+    'conversations/conversations.service',
+    'ConversationsService',
+  );
+  const r = await conversations.ingestInboundMessage({
+    businessId: bizA,
+    phone,
+    externalMessageId: wamid,
+    content: text,
+  });
+  return { id: r.message.id, conversationId: r.conversation.id };
+}
+/** Moves a message 20 seconds into the past, out of the webhook's own time. */
+const age = (id) =>
+  sql.query(
+    `UPDATE "Message" SET "createdAt"="createdAt" - interval '20 seconds' WHERE id=$1`,
+    [id],
+  );
+
+test('18. the same webhook twice at the same moment: stored once, the AI is called once, sent once', async () => {
+  const calls = countAiCalls();
+  const body = webhook({
+    from: '201000000018',
+    messages: [['wamid.twice', 'التيشيرت الأسود بكام؟']],
+  });
+  const [a, b] = await Promise.all([post(body), post(body)]);
+  assert.deepEqual([a.status, b.status], [200, 200]);
+  const asked = await customerMessage('wamid.twice');
+  const replies = await replyTo(asked.id);
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0].status, 'SENT');
+  await sleep(300);
+  assert.equal(calls(), 1, 'one AI call for one customer message');
+  const [row] = await rows('SELECT "aiAttempts" FROM "Message" WHERE id=$1', [
+    asked.id,
+  ]);
+  assert.equal(row.aiAttempts, 1);
+  assert.equal((await replyRow(asked.id)).sendAttempts, 1, 'sent once');
+});
+
+test('19. Meta sends the webhook again later: no new AI call, nothing sent again', async () => {
+  const calls = countAiCalls();
+  const body = webhook({
+    from: '201000000018',
+    messages: [['wamid.twice', 'التيشيرت الأسود بكام؟']],
+  });
+  for (let i = 0; i < 2; i++) assert.equal((await post(body)).status, 200);
+  await sleep(300);
+  assert.equal(calls(), 0);
+  const asked = await customerMessage('wamid.twice');
+  assert.equal(
+    (
+      await rows('SELECT id FROM "Message" WHERE "replyToMessageId"=$1', [
+        asked.id,
+      ])
+    ).length,
+    1,
+  );
+  assert.equal((await replyRow(asked.id)).sendAttempts, 1);
+});
+
+test('20. Meta retries while the AI is still answering (our 200 came late): still one AI call', async () => {
+  const ai = service('ai/ai.service', 'AiService');
+  ai.respond = async (...args) => {
+    await sleep(400); // a slow AI
+    return Object.getPrototypeOf(ai).respond.apply(ai, args);
+  };
+  try {
+    const calls = countAiCalls();
+    const body = webhook({
+      from: '201000000020',
+      messages: [['wamid.slow', 'مساء الخير']],
+    });
+    assert.equal((await post(body)).status, 200);
+    await sleep(100);
+    assert.equal((await post(body)).status, 200, 'the retry, mid-answer');
+    const asked = await customerMessage('wamid.slow');
+    assert.equal((await replyTo(asked.id)).length, 1);
+    assert.equal(calls(), 1);
+  } finally {
+    delete ai.respond;
+  }
+});
+
+test('21. sending fails after the AI reply is saved: tried again only when Meta surely did not get it', async () => {
+  const whatsapp = sender();
+  let tries = 0;
+  const busy = async () => {
+    tries++;
+    throw new SendFailure('Meta answered 503 (2) busy', true);
+  };
+  const refuses = async () => {
+    tries++;
+    throw new SendFailure('Meta answered 400 (131047) window', false);
+  };
+  const due = (id) =>
+    sql.query(
+      `UPDATE "Message" SET "nextSendAt"="nextSendAt" - interval '5 minutes' WHERE id=$1`,
+      [id],
+    );
+  const firstTry = (asked) =>
+    until(async () => {
+      const r = await replyRow(asked.id);
+      return r?.sendAttempts === 1 && !r.sendClaimedAt ? r : null;
+    }, 'the first try');
+  try {
+    // Meta busy once: kept PENDING, sent on the next try.
+    whatsapp.post = busy;
+    await post(
+      webhook({ from: '201000000021', messages: [['wamid.busy', 'سلام']] }),
+    );
+    const asked = await customerMessage('wamid.busy');
+    const reply = await firstTry(asked);
+    assert.equal(reply.status, 'PENDING', 'Meta was busy: another try later');
+    assert.ok(reply.nextSendAt);
+    await recovery().sweep();
+    assert.equal(tries, 1, 'not due yet (30 seconds)');
+    delete whatsapp.post; // Meta works again
+    await due(reply.id);
+    await recovery().sweep();
+    const sent = await replyRow(asked.id);
+    assert.deepEqual([sent.status, sent.sendAttempts], ['SENT', 2]);
+
+    // Meta refuses (400): FAILED at once, never tried again.
+    whatsapp.post = refuses;
+    tries = 0;
+    await post(
+      webhook({ from: '201000000121', messages: [['wamid.refused', 'سلام']] }),
+    );
+    const refused = await customerMessage('wamid.refused');
+    const failed = await until(async () => {
+      const r = await replyRow(refused.id);
+      return r?.status === 'FAILED' ? r : null;
+    }, 'FAILED');
+    await due(failed.id);
+    await recovery().sweep();
+    assert.equal(tries, 1);
+    assert.equal((await replyRow(refused.id)).sendAttempts, 1);
+
+    // Busy three times: FAILED after the third try.
+    whatsapp.post = busy;
+    tries = 0;
+    await post(
+      webhook({ from: '201000000221', messages: [['wamid.busy3', 'سلام']] }),
+    );
+    const busy3 = await customerMessage('wamid.busy3');
+    const r3 = await firstTry(busy3);
+    for (let i = 0; i < 3; i++) {
+      await due(r3.id);
+      await recovery().sweep();
+    }
+    const gaveUp = await replyRow(busy3.id);
+    assert.deepEqual(
+      [gaveUp.status, gaveUp.sendAttempts, tries],
+      ['FAILED', 3, 3],
+    );
+  } finally {
+    delete whatsapp.post;
+  }
+});
+
+test('22. restart after the customer message was stored, before the AI: answered once by the recovery pass', async () => {
+  const calls = countAiCalls();
+  const m = await storedWithoutAnswer(
+    '201000000022',
+    'wamid.restart-1',
+    'التيشيرت الأسود بكام؟',
+  );
+  await age(m.id);
+  await recovery().sweep();
+  const [reply] = await replyTo(m.id);
+  assert.equal(reply.status, 'SENT');
+  assert.match(reply.content, /بـ 250\.00 جنيه/, 'a real answer from the AI');
+  await recovery().sweep(); // a second pass, or a second restart
+  assert.equal(calls(), 1);
+  assert.equal((await replyRow(m.id)).sendAttempts, 1);
+
+  // An AI run that crashed is taken again after its 2-minute lease, twice in total at most.
+  const crashed = await storedWithoutAnswer(
+    '201000000122',
+    'wamid.restart-crashed',
+    'سلام',
+  );
+  await age(crashed.id);
+  await sql.query(
+    `UPDATE "Message" SET "aiClaimedAt"=(now() AT TIME ZONE 'UTC') - interval '30 seconds', "aiAttempts"=1 WHERE id=$1`,
+    [crashed.id],
+  );
+  await recovery().sweep();
+  assert.equal(await replyRow(crashed.id), undefined, 'lease not over yet');
+  await sql.query(
+    `UPDATE "Message" SET "aiClaimedAt"="aiClaimedAt" - interval '3 minutes' WHERE id=$1`,
+    [crashed.id],
+  );
+  await recovery().sweep();
+  assert.equal((await replyTo(crashed.id))[0].status, 'SENT');
+  const [tries] = await rows('SELECT "aiAttempts" FROM "Message" WHERE id=$1', [
+    crashed.id,
+  ]);
+  assert.equal(tries.aiAttempts, 2);
+});
+
+test('23. restart after the AI reply was saved, before sending: sent once, the AI is not asked again', async () => {
+  const calls = countAiCalls();
+  const m = await storedWithoutAnswer(
+    '201000000023',
+    'wamid.restart-2',
+    'سلام',
+  );
+  const messages = service('messages/messages.service', 'MessagesService');
+  const saved = await messages.createAiReply({
+    businessId: bizA,
+    conversationId: m.conversationId,
+    replyToMessageId: m.id,
+    content: 'أهلًا بيك! تحب تسأل عن إيه؟',
+    aiMeta: { intent: 'OTHER', requiresReview: false, source: 'ai' },
+  });
+  await age(m.id);
+  await age(saved.id);
+  await recovery().sweep();
+  const sent = await replyRow(m.id);
+  assert.deepEqual([sent.status, sent.sendAttempts], ['SENT', 1]);
+  await recovery().sweep();
+  assert.equal((await replyRow(m.id)).sendAttempts, 1);
+  assert.equal(calls(), 0);
+});
+
+test('24. restart in the middle of a send: never sent twice, FAILED so the owner sees it', async () => {
+  const m = await storedWithoutAnswer(
+    '201000000024',
+    'wamid.restart-3',
+    'سلام',
+  );
+  const messages = service('messages/messages.service', 'MessagesService');
+  const saved = await messages.createAiReply({
+    businessId: bizA,
+    conversationId: m.conversationId,
+    replyToMessageId: m.id,
+    content: 'أهلًا بيك!',
+    aiMeta: { intent: 'OTHER', requiresReview: false, source: 'ai' },
+  });
+  // The send started 3 minutes ago and never wrote its result.
+  await sql.query(
+    `UPDATE "Message" SET "sendClaimedAt"=(now() AT TIME ZONE 'UTC') - interval '3 minutes', "sendAttempts"=1 WHERE id=$1`,
+    [saved.id],
+  );
+  await recovery().sweep();
+  const r = await replyRow(m.id);
+  assert.deepEqual(
+    [r.status, r.sendAttempts, r.sendClaimedAt],
+    ['FAILED', 1, null],
+  );
+});
+
+test('25. Meta gets its 200 only after the message is saved; images, voice notes and documents never reach the AI', async () => {
+  const calls = countAiCalls();
+  const media = {
+    image: { id: 'media-img', mime_type: 'image/jpeg', caption: 'ده المقاس؟' },
+    audio: { id: 'media-aud', mime_type: 'audio/ogg' },
+    document: { id: 'media-doc', filename: 'order.pdf' },
+  };
+  for (const [type, value] of Object.entries(media)) {
+    const wamid = `wamid.media-${type}`;
+    const payload = JSON.parse(
+      webhook({ from: '201000000025', messages: [[wamid, 'x']] }),
+    );
+    const m = payload.entry[0].changes[0].value.messages[0];
+    m.type = type;
+    delete m.text;
+    m[type] = value;
+    const res = await post(JSON.stringify(payload));
+    assert.equal(res.status, 200);
+    const [row] = await rows(
+      'SELECT id, "messageType" FROM "Message" WHERE "externalMessageId"=$1',
+      [wamid],
+    );
+    assert.ok(row, `${type}: saved before the 200`);
+    assert.equal(row.messageType, type.toUpperCase());
+    const [fixed] = await replyTo(row.id);
+    assert.equal(fixed.aiMeta.source, 'backend');
+  }
+  assert.equal(calls(), 0);
+});
+
 after(async () => {
   if (app) await app.close();
   if (fakeAi?.listening) fakeAi.close();
