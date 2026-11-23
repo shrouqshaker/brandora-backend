@@ -313,8 +313,9 @@ them); there is nothing to poll except the normal conversations list.
 ## 3c. Chat screen: reply and AI switch
 
 - Send: `POST .../conversations/:conversationId/messages` with `{ "content" }`
-  (1-4096 after trimming). 201 with the message; show `FAILED` with a retry
-  option. `409 WHATSAPP_WINDOW_CLOSED`: "the customer has not written for 24
+  (1-4096 after trimming). 201 with the message; `PENDING` = Meta was busy and
+  the backend tries again by itself (show "sending…"); show `FAILED` with a retry
+  option (a retry is a new message). `409 WHATSAPP_WINDOW_CLOSED`: "the customer has not written for 24
   hours; WhatsApp does not allow a normal message now".
 - Switch: `PATCH .../conversations/:conversationId` with `{ "aiEnabled": false }`
   or `true`. Show `handoffReason` as a small banner when `aiEnabled` is false

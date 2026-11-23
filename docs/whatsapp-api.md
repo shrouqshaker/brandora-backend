@@ -51,8 +51,10 @@ means "safe in the database"; a database error (or a storage race that asks for
 a retry) answers 500 and Meta resends later, which is safe because a repeated
 `wamid` is stored once. Only errors a retry cannot fix are logged and skipped:
 an invalid customer number, or a `wamid` that belongs to another business.
-Replies are sent after the 200. Both routes answer `503 WHATSAPP_UNAVAILABLE`
-while switched off.
+Replies are sent after the 200; a repeated `wamid` is passed on too, and the
+reply service skips it when it is already answered or being answered
+([ai-replies.md](ai-replies.md#once-only)). Both routes answer `503
+WHATSAPP_UNAVAILABLE` while switched off.
 
 | Meta message type                  | Stored as                                         |
 | ---------------------------------- | ------------------------------------------------- |
@@ -66,6 +68,16 @@ while switched off.
 Delivery reports `sent`, `delivered`, `read`, `failed` update our messages by
 `wamid`, only forward (a late `delivered` never replaces `read`).
 
+## Sending
+
+`WhatsAppSenderService.deliver()` is the only sender. A message is stored
+`PENDING` first, then one caller claims it (`sendClaimedAt`) and calls Meta,
+then it becomes `SENT` (with the `wamid`) or `FAILED`. Meta busy (429, 5xx) or
+no connection at all: it stays `PENDING` and is tried again after 30 seconds and
+2 minutes, 3 tries in total. Any other failure, a timeout included, is `FAILED`
+at once and never sent again automatically (see the
+[retry policy](ai-replies.md#send-retry-policy)).
+
 ## Configuration
 
 | Variable                 | Meaning                                                     |
@@ -76,6 +88,7 @@ Delivery reports `sent`, `delivered`, `read`, `failed` update our messages by
 | `WHATSAPP_ACCESS_TOKEN`  | Sends messages; only needed when dry run is `"false"`       |
 | `WHATSAPP_GRAPH_VERSION` | Meta Graph API version, default `v26.0`                     |
 | `WHATSAPP_DRY_RUN`       | Anything but `"false"` logs replies instead of sending them |
+| `REPLY_RECOVERY_SECONDS` | Recovery pass interval, default `30`; `0` switches it off   |
 
 Secrets live only in `.env` / Railway variables, never in Git, docs or chats.
 Logs never contain message text or full customer numbers (`********0001`).
@@ -102,5 +115,6 @@ Logs never contain message text or full customer numbers (`********0001`).
   `whatsapp-inbound.spec.ts` (which errors are skipped, which make Meta retry).
 - `npm run test:whatsapp:postgres`: a new local database, signed webhooks over
   real HTTP: stored once, the right business, one reply in dry run, forward-only
-  reports, unknown or paused numbers ignored.
+  reports, unknown or paused numbers ignored; tests 18-25 for repeats, send
+  failures and restarts.
 - By hand: `node verification/tools/send-whatsapp-webhook.cjs "text" [wamid]`.

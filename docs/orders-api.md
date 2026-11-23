@@ -66,9 +66,10 @@ returned, so a double tap is safe).
 }
 ```
 
-Approve and reject answer the order plus `customerNotification`: `SENT` or
-`FAILED` (Meta refused, for example after the 24-hour window). The decision is
-never undone because of the message.
+Approve and reject answer the order plus `customerNotification`: `SENT`,
+`PENDING` (Meta was busy; it is tried again within about 3 minutes) or `FAILED`
+(Meta refused, for example after the 24-hour window). The decision is never
+undone because of the message.
 
 Errors: `400 VALIDATION_ERROR`, `404 MESSAGE_NOT_FOUND`, `404 PRODUCT_NOT_FOUND`,
 `404 VARIANT_NOT_FOUND`, `404 ORDER_NOT_FOUND`, `409 ORDER_ITEM_UNAVAILABLE`,
