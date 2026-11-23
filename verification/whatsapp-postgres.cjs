@@ -45,6 +45,21 @@ const fixture = JSON.parse(
 );
 
 let sql, app, http, ownerA, ownerB, bizA, bizB, fakeAi, backendUrl;
+/** Every line the backend logs during the tests, and what customers wrote (test 39). */
+const logLines = [];
+const captureLogs = Object.fromEntries(
+  ['log', 'error', 'warn', 'debug', 'verbose', 'fatal'].map((level) => [
+    level,
+    (...parts) =>
+      logLines.push(
+        parts
+          .map((p) => (typeof p === 'string' ? p : (JSON.stringify(p) ?? '')))
+          .join(' '),
+      ),
+  ]),
+);
+const customerTexts = new Set();
+const customerPhones = new Set();
 async function restartFakeAi(port) {
   fakeAi = startFakeAi({
     port,
@@ -87,6 +102,8 @@ function webhook({
 }) {
   const payload = JSON.parse(JSON.stringify(fixture));
   const value = payload.entry[0].changes[0].value;
+  customerPhones.add(from);
+  for (const [, text] of messages ?? []) customerTexts.add(text);
   value.metadata.phone_number_id = number;
   value.contacts[0].wa_id = from;
   if (messages)
@@ -176,7 +193,7 @@ before(
       imports: [AppModule],
     }).compile();
     // Same options, pipe and filter as src/main.ts.
-    app = module.createNestApplication({ rawBody: true, logger: false });
+    app = module.createNestApplication({ rawBody: true, logger: captureLogs });
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -796,6 +813,8 @@ const replyRow = async (customerMessageId) =>
   )[0];
 /** A customer message stored the way the webhook stores it, but nobody answered (the server stopped). */
 async function storedWithoutAnswer(phone, wamid, text) {
+  customerPhones.add(phone);
+  customerTexts.add(text);
   const conversations = service(
     'conversations/conversations.service',
     'ConversationsService',
@@ -1599,6 +1618,182 @@ test('36. one order per customer message, even when two taps arrive together', a
     [m.id],
   );
   assert.equal(n.n, 1);
+});
+
+// ---------------------------------------------------------------- End to end
+test('37. end to end: question, answer from the products, wants to buy, owner order, approve, stock once, confirmation', async () => {
+  const calls = countAiCalls();
+  const phone = '201000000037';
+  const kit = await productWithStock('طقم رياضي', '650.00', 2);
+  const orders = `/businesses/${bizA}/orders`;
+  const ask = webhook({
+    from: phone,
+    messages: [['wamid.e2e-1', 'طقم رياضي بكام؟']],
+  });
+  const buyIt = webhook({
+    from: phone,
+    messages: [['wamid.e2e-2', 'تمام عايز طقم رياضي']],
+  });
+
+  // 1) Saved once, the AI reads the product from the backend, the reply is saved and sent once.
+  assert.equal((await post(ask)).status, 200);
+  const question = await customerMessage('wamid.e2e-1');
+  const [answer] = await replyTo(question.id);
+  assert.equal(answer.content, 'طقم رياضي بـ 650.00 جنيه.');
+  assert.equal(answer.status, 'SENT');
+
+  // 2) The customer confirms: PURCHASE_INTENT, the owner sees it, nothing is ordered yet.
+  assert.equal((await post(buyIt)).status, 200);
+  const buy = await customerMessage('wamid.e2e-2');
+  const [ok] = await replyTo(buy.id);
+  assert.equal(ok.aiMeta.intent, 'PURCHASE_INTENT');
+  const chat = await until(async () => {
+    const c = await call(
+      'get',
+      `/businesses/${bizA}/conversations/${buy.conversationId}`,
+    );
+    return c.purchaseMessageId === buy.id ? c : null;
+  }, 'the purchase alert');
+  assert.equal(await stockOf(kit.variantId), 2);
+
+  // 3) The owner makes the order from that message and approves it.
+  const order = await call('post', orders, {
+    body: {
+      sourceMessageId: chat.purchaseMessageId,
+      items: [{ ...kit, quantity: 1 }],
+    },
+    status: 201,
+  });
+  const approved = await call('post', `${orders}/${order.id}/approve`, {
+    body: {},
+  });
+  assert.deepEqual(
+    [approved.status, approved.total, approved.customerNotification],
+    ['IN_PROGRESS', '650.00', 'SENT'],
+  );
+
+  // 4) Stock taken once; the customer gets the confirmation on WhatsApp.
+  assert.equal(await stockOf(kit.variantId), 1);
+  const confirmation = await lastOwnerMessage(chat.id);
+  assert.deepEqual(confirmation, {
+    content: 'تم تأكيد طلبك ✅\n- طقم رياضي × 1\nالإجمالي: 650.00 EGP',
+    status: 'SENT',
+  });
+
+  // 5) Meta sends both webhooks again: nothing happens twice.
+  await post(ask);
+  await post(buyIt);
+  await sleep(300);
+  assert.equal(calls(), 2, 'one AI call per customer message');
+  for (const id of [question.id, buy.id]) {
+    const replies = await rows(
+      'SELECT "sendAttempts", status FROM "Message" WHERE "replyToMessageId"=$1',
+      [id],
+    );
+    assert.deepEqual(replies, [{ sendAttempts: 1, status: 'SENT' }]);
+  }
+  assert.equal(await stockOf(kit.variantId), 1);
+  const [n] = await rows(
+    'SELECT count(*)::int AS n FROM "Order" WHERE "conversationId"=$1',
+    [chat.id],
+  );
+  assert.equal(n.n, 1, 'one order');
+});
+
+test('38. end to end handoff: complaint, no invented answer, handoff with its reason, AI silent, owner reply reaches the customer', async () => {
+  const calls = countAiCalls();
+  const phone = '201000000038';
+  await post(
+    webhook({
+      from: phone,
+      messages: [['wamid.e2e-c1', 'عندي شكوى الطلب اتأخر ومش راضي']],
+    }),
+  );
+  const complaint = await customerMessage('wamid.e2e-c1');
+  const [answer] = await replyTo(complaint.id);
+  assert.equal(answer.aiMeta.requiresReview, true);
+  assert.doesNotMatch(
+    answer.content,
+    /\d/,
+    'no made-up order number, date or price',
+  );
+  const path = `/businesses/${bizA}/conversations/${complaint.conversationId}`;
+  const chat = await until(async () => {
+    const c = await call('get', path);
+    return c.aiEnabled === false ? c : null;
+  }, 'the handoff');
+  assert.equal(chat.handoffReason, 'AI_REVIEW_REQUIRED');
+  assert.ok(chat.handoffAt);
+  const inbox = await call(
+    'get',
+    `/businesses/${bizA}/conversations?limit=100`,
+  );
+  assert.ok(
+    inbox.items.some(
+      (c) => c.id === chat.id && c.handoffReason === 'AI_REVIEW_REQUIRED',
+    ),
+    'the owner sees why in her inbox',
+  );
+
+  // The customer writes again: no automatic reply, not even from the recovery pass.
+  await post(
+    webhook({
+      from: phone,
+      messages: [['wamid.e2e-c2', 'حد يرد عليا لو سمحت']],
+    }),
+  );
+  const again = await customerMessage('wamid.e2e-c2');
+  await age(again.id);
+  await recovery().sweep();
+  await sleep(300);
+  assert.equal(await replyRow(again.id), undefined);
+  assert.equal(calls(), 1);
+
+  // The owner answers from the app: saved and sent to the customer.
+  const sent = await call('post', `${path}/messages`, {
+    body: { content: 'أنا آسفة جدًا، طلبك هيوصلك النهارده' },
+    status: 201,
+  });
+  assert.deepEqual([sent.senderType, sent.status], ['OWNER', 'SENT']);
+  assert.match(sent.externalMessageId, /^dryrun-/);
+
+  // She switches the AI back on: it answers the next message again.
+  await call('patch', path, { body: { aiEnabled: true } });
+  await post(webhook({ from: phone, messages: [['wamid.e2e-c3', 'شكرًا']] }));
+  const thanks = await customerMessage('wamid.e2e-c3');
+  assert.equal((await replyTo(thanks.id))[0].status, 'SENT');
+  assert.equal(calls(), 2);
+});
+
+test('39. logs never hold a customer text, a full customer number or a secret', async () => {
+  await sleep(300); // let background replies finish their logs
+  assert.ok(logLines.length > 0, 'the backend did log');
+  const secrets = [
+    SECRET,
+    VERIFY,
+    AI_TOKEN,
+    BACKEND_TOKEN,
+    process.env.JWT_SECRET,
+    process.env.AUTH_RATE_LIMIT_SECRET,
+  ];
+  for (const line of logLines) {
+    for (const secret of secrets)
+      assert.ok(
+        !line.includes(secret),
+        `a secret in the log: ${line.slice(0, 80)}`,
+      );
+    for (const text of customerTexts)
+      if (text.length >= 4)
+        assert.ok(
+          !line.includes(text),
+          `customer text in the log: ${line.slice(0, 80)}`,
+        );
+    for (const phone of customerPhones)
+      assert.ok(
+        !line.includes(phone),
+        `full number in the log: ${line.slice(0, 80)}`,
+      );
+  }
 });
 
 after(async () => {
