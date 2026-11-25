@@ -1,10 +1,12 @@
 # Conversations handoff for Yasmin — Android
 
-**Contract reviewed against backend commit `d138217` on branch
-`feature/customers-conversations` (PR #1), 2026-11-09. Not merged or deployed yet.**
+**Maintained Backend contract; implementation status checked on 2026-11-25.**
+The original examples were reviewed against commit `d138217` on 2026-11-09.
+Customers, Conversations, WhatsApp and Orders are now registered on local main.
+This does not establish the deployed Backend version or Android UI readiness.
 Every JSON body below was captured from the real application on a disposable
-local database; IDs, tokens and times are illustrative. Until the PR is merged
-and Railway is deployed, use a local test backend agreed with Yomna.
+local database; IDs, tokens and times are illustrative. Use an explicitly agreed
+test environment until the owner confirms its deployed version and configuration.
 
 ## 1. What is ready, test-only, or not built
 
@@ -32,7 +34,8 @@ Authorization: Bearer <OWNER_ACCESS_TOKEN>
 Accept: application/json
 ```
 
-All routes are GET with no body. `businessId` is the owner's selected business
+List/detail routes are GET with no body; later sections also describe PUT, PATCH
+and POST operations. `businessId` is the owner's selected business
 from the normal login/`/auth/me` flow.
 
 | Answer                       | Meaning                                                       | Android action                                                              |

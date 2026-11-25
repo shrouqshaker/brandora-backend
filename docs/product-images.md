@@ -20,14 +20,14 @@ upload is part of automated verification.
 
 For P = /businesses/:businessId/products/:productId:
 
-| Operation | Contract |
-| --- | --- |
-| POST P/images | Multipart one file; 201 image metadata plus cleanupPending |
-| POST P/images | Alternatively 1-5 repeated files parts; 201 { items, cleanupPending }. Never mix file and files. |
-| GET P/images | 200 { items }, ACTIVE images ordered by position, createdAt, id |
-| PATCH P/images/:imageId | JSON { "isMain": true }; 200 { items } in the new order |
-| PATCH P/images | JSON { "imageIds": ["<all-active-ids-in-order>"] }; 200 { items }, complete permutation of 1-5 distinct UUIDs |
-| DELETE P/images/:imageId | 200 { deleted: true, cleanupPending }; retry pending cleanup with the same ID |
+| Operation                | Contract                                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| POST P/images            | Multipart one file; 201 image metadata plus cleanupPending                                                    |
+| POST P/images            | Alternatively 1-5 repeated files parts; 201 { items, cleanupPending }. Never mix file and files.              |
+| GET P/images             | 200 { items }, ACTIVE images ordered by position, createdAt, id                                               |
+| PATCH P/images/:imageId  | JSON { "isMain": true }; 200 { items } in the new order                                                       |
+| PATCH P/images           | JSON { "imageIds": ["<all-active-ids-in-order>"] }; 200 { items }, complete permutation of 1-5 distinct UUIDs |
+| DELETE P/images/:imageId | 200 { deleted: true, cleanupPending }; retry pending cleanup with the same ID                                 |
 
 Existing owner JWT and active membership are required. Wrong Business/Product/image
 IDs return 404. Files are memory-buffered, at most 5 MiB each, matching JPEG/PNG/

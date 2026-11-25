@@ -2,8 +2,31 @@
 
 One page for the agreed contract. Security details and limits are in
 [ai-integration.md](ai-integration.md); what the backend does with each reply
-is in [ai-replies.md](ai-replies.md). Android never calls the AI and never
+is in [reply and recovery behavior](ai-integration.md#reply-persistence-handoff-and-recovery). Android never calls the AI and never
 sends history: the WhatsApp webhook triggers every AI call.
+
+## Implementation alignment requiring owner review
+
+This file retains the negotiated cross-service guarantees. The following
+implementation observations do not silently amend that contract:
+
+- The webhook is the normal customer workflow, but the Backend also registers
+  owner-authorized `POST /businesses/:businessId/ai/respond`, using persisted
+  conversation/message IDs. Therefore the statement above about every call
+  being webhook-triggered is not an exhaustive description of registered routes.
+- `ConversationsAiStore` is the registered persistent adapter. Its history
+  `snapshot` hashes the conversation/source-message boundary, not the complete
+  history contents or a retained database transaction. The Backend validator
+  rejects duplicate CUSTOMER timestamps within a returned page; stronger
+  cross-page ambiguity/immutability assertions need owner review and explicit
+  acceptance coverage before being claimed as implemented guarantees.
+- The Backend accepts six read tools, including `get_business_info`. The
+  canonical AI consumer's five-tool allowlist and provider-side budgets below
+  remain negotiated/external assertions, not newly verified AI-repository facts.
+
+The response-field restrictions, signed context and tenant boundaries below
+remain requirements. No API or integration implementation was changed by this
+documentation review. See [Backend integration behavior](ai-integration.md).
 
 ## 1. Backend → AI: `POST /v2/ai/respond`
 

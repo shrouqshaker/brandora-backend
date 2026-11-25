@@ -1,5 +1,11 @@
 # Railway ingress and Auth rate-limit security review
 
+> Retained engineering review pending owner infrastructure review. The threat
+> model is relevant, but historical platform observations and proposed gateways
+> are not certified current deployment facts or implemented application gates.
+> See [authentication](authentication.md#rate-limiting-and-proxy-trust) and
+> [deployment](deployment.md) for maintained requirements.
+
 ## Verdict and limits of this review
 
 The current socket-first resolver resists caller-controlled forwarding headers

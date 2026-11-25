@@ -2,7 +2,7 @@
 
 All previous owner-facing Android requests now require
 `Authorization: Bearer <access_token>`, including Business creation, profile,
-settings, working hours, Catalog, Categories, Products, Variants, Inventory and
+settings, working hours, Categories, Products, Variants, Inventory and
 every Excel Import route. Registration, login, refresh, token-based logout,
 forgot-password and reset-password are public credential/token operations. No health or
 development controller exists in this checkout. A global guard denies new routes
@@ -157,7 +157,9 @@ lookup result, code or delivery status appears in the response.
 Configured forgot requests return the same HTTP 200 for known/unknown accounts:
 
 ```json
-{ "message": "If the account exists, a password reset has been requested. Check your email; delivery may be delayed or unavailable." }
+{
+  "message": "If the account exists, a password reset has been requested. Check your email; delivery may be delayed or unavailable."
+}
 ```
 
 Delivery is synchronous with an 8-second HTTPS header/body timeout and an
@@ -314,7 +316,7 @@ Errors retain `{ statusCode, code, message, error }`:
 | 409 EMAIL_UNAVAILABLE           | Registration email unavailable                                         |
 | 429 AUTH_RATE_LIMITED           | Back off before retrying                                               |
 | 401 AUTH_REFRESH_INVALID        | Clear session and log in again                                         |
-| 400 AUTH_RESET_INVALID          | Request a new reset code within rate limits                             |
+| 400 AUTH_RESET_INVALID          | Request a new reset code within rate limits                            |
 | 503 AUTH_EMAIL_UNAVAILABLE      | Recovery configuration is unavailable; retry after operator resolution |
 | 503 AUTH_RATE_LIMIT_UNAVAILABLE | Retry after the Retry-After interval                                   |
 
@@ -370,7 +372,7 @@ inspected or changed. CORS is not authorization.
 
 Email verification, MFA, invitations and staff management remain out of scope.
 Registration still reveals email availability through 409; login and recovery
-responses do not reveal existence. See [dependency remediation](security-remediation.md)
+responses do not reveal existence. See [dependency remediation](authentication.md)
 for the audited versions and compatibility overrides.
 
 ## Additive database rollout

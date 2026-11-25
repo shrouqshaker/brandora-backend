@@ -2,7 +2,7 @@
 
 Inventory belongs only to ProductVariant. Product is product metadata and no
 longer has `stockQuantity` or `trackInventory`. Every simple product created by
-Products or Catalog has a Default Variant with `optionValues: {}`. Resolve its
+Products has a Default Variant with `optionValues: {}`. Resolve its
 UUID through Products/Variants; do not send a product UUID as a variant UUID.
 Configurable products have separate inventory for each valid selection.
 
@@ -85,6 +85,7 @@ are read in one repeatable-read snapshot. Inactive records retain history.
   "items": [
     {
       "id": "f6bc7287-3285-4e19-a819-459c41f0a138",
+      "productId": "b2621a53-0797-4b1d-84f9-5f9a41697f5c",
       "catalogItemId": "b2621a53-0797-4b1d-84f9-5f9a41697f5c",
       "variantId": "9b7851f1-15ac-4ca3-a705-97e723825336",
       "type": "MANUAL_ADJUSTMENT",
@@ -104,7 +105,7 @@ are read in one repeatable-read snapshot. Inactive records retain history.
 
 Supported types are INITIAL_IMPORT, IMPORT_UPDATE, MANUAL_ADJUSTMENT,
 ORDER_APPROVED, ORDER_CANCELLED. Order types are internal transaction methods,
-not public stock-setting inputs. See the [Orders interface and rollout gate](variant-inventory-rollout.md).
+not public stock-setting inputs. See the [Orders interface and rollout gate](business-rules.md#internal-stock-interface).
 
 ## Android breaking changes
 

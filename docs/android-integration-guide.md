@@ -1,8 +1,14 @@
 # Brandora Android API integration guide
 
-Contract reviewed on 2026-10-30 against application source commit
+Original contract reviewed on 2026-10-30 against application source commit
 `f4b69686854ce7dff2342db14e01b250e26add6e`, including inventory/import commit
 `25b056447b4e84a883275191c22e483dddf1b7a5`.
+
+Current workflow guidance is in [Android integration](android-integration.md).
+This detailed reference remains available until Swagger coverage is verified.
+Orders are implemented in the Backend; actual Android UI and deployed feature
+availability require separate verification. The [Orders API](orders-api.md) is
+the current create/approve/reject contract.
 
 This document describes implemented backend behavior, not confirmation of a live
 deployment. The local commits have not been deployed as part of this work. IDs,
@@ -42,22 +48,25 @@ first: an invalid UUID can also be hidden as 404 by the guard before DTO validat
 
 ### Session endpoints
 
-| Method and path | Request JSON | Success body/status |
-| --- | --- | --- |
-| POST `/auth/register` | `{ "email": "owner@example.com", "password": "SecurePassword123!" }` | Session below, 201 |
-| POST `/auth/login` | Same fields | Session below, 200 |
-| GET `/auth/me` | No body; Bearer required | `{ "id": "11111111-1111-4111-8111-111111111111", "email": "owner@example.com", "businesses": [] }` for a new user, 200 |
-| POST `/auth/refresh` | `{ "refreshToken": "<opaque-refresh-token>" }` | Replacement Session, 200 |
-| POST `/auth/logout` | Same refresh-token body; no Bearer required | 204, empty |
-| POST `/auth/logout-all` | `{}`; Bearer required | 204, empty |
-| POST `/auth/forgot-password` | `{ "email": "owner@example.com" }` | Generic message in section 11, 200, or 503 when unavailable |
-| POST `/auth/reset-password` | Email/otp/newPassword in section 11 | 204, empty |
+| Method and path              | Request JSON                                                         | Success body/status                                                                                                    |
+| ---------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| POST `/auth/register`        | `{ "email": "owner@example.com", "password": "SecurePassword123!" }` | Session below, 201                                                                                                     |
+| POST `/auth/login`           | Same fields                                                          | Session below, 200                                                                                                     |
+| GET `/auth/me`               | No body; Bearer required                                             | `{ "id": "11111111-1111-4111-8111-111111111111", "email": "owner@example.com", "businesses": [] }` for a new user, 200 |
+| POST `/auth/refresh`         | `{ "refreshToken": "<opaque-refresh-token>" }`                       | Replacement Session, 200                                                                                               |
+| POST `/auth/logout`          | Same refresh-token body; no Bearer required                          | 204, empty                                                                                                             |
+| POST `/auth/logout-all`      | `{}`; Bearer required                                                | 204, empty                                                                                                             |
+| POST `/auth/forgot-password` | `{ "email": "owner@example.com" }`                                   | Generic message in section 11, 200, or 503 when unavailable                                                            |
+| POST `/auth/reset-password`  | Email/otp/newPassword in section 11                                  | 204, empty                                                                                                             |
 
 Session JSON:
 
 ```json
 {
-  "user": { "id": "11111111-1111-4111-8111-111111111111", "email": "owner@example.com" },
+  "user": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "email": "owner@example.com"
+  },
   "accessToken": "<signed-access-token>",
   "refreshToken": "<opaque-refresh-token>",
   "tokenType": "Bearer",
@@ -129,20 +138,25 @@ objects from the following sections:
 
 ```json
 {
-  "pagination": { "limit": 20, "offset": 0, "totalCount": 0, "hasMore": false, "nextOffset": null },
+  "pagination": {
+    "limit": 20,
+    "offset": 0,
+    "totalCount": 0,
+    "hasMore": false,
+    "nextOffset": null
+  },
   "items": []
 }
 ```
 
-| Reader | Default limit | Allowed range | Ordering |
-| --- | --- | --- | --- |
-| Business, Category, Product, Variant lists | 20 | 1–100 | createdAt DESC, id DESC |
-| Variant/Business movement history | 20 | 1–100 | createdAt DESC, id DESC |
-| Import job history | 20 | 1–100 | createdAt DESC, id DESC |
-| Validation results / preview | 50 | 1–100 | Combined non-skipped Excel rows by rowNumber |
+| Reader                                     | Default limit | Allowed range | Ordering                                     |
+| ------------------------------------------ | ------------- | ------------- | -------------------------------------------- |
+| Business, Category, Product, Variant lists | 20            | 1–100         | createdAt DESC, id DESC                      |
+| Variant/Business movement history          | 20            | 1–100         | createdAt DESC, id DESC                      |
+| Import job history                         | 20            | 1–100         | createdAt DESC, id DESC                      |
+| Validation results / preview               | 50            | 1–100         | Combined non-skipped Excel rows by rowNumber |
 
-offset defaults to 0 and must be a nonnegative safe integer, maximum
-9007199254740991. Send integer query values; use nextOffset rather than
+offset defaults to 0 and must be a nonnegative safe integer, maximum 9007199254740991. Send integer query values; use nextOffset rather than
 calculating from the number of items in one response collection. End/out-of-range
 pages have empty arrays, hasMore=false and nextOffset=null. Each request is a new
 view of data; offset pages across multiple requests are not a frozen snapshot.
@@ -154,13 +168,13 @@ concurrent job creation.
 Let `C = /businesses/:businessId/categories`. Substitute actual UUIDs; C is
 notation in this guide, not a literal URL.
 
-| Method/path | Request body | Success |
-| --- | --- | --- |
-| POST C | `{ "name": "Clothes" }` | Category object, 201 |
-| GET C`?limit=20&offset=0` | None | Pagination/items of Category, 200 |
-| GET C`/:categoryId` | None | Category, 200 |
-| PATCH C`/:categoryId` | `{ "name": "Everyday Clothes" }` | Updated Category, 200 |
-| DELETE C`/:categoryId` | None | 204, empty |
+| Method/path               | Request body                     | Success                           |
+| ------------------------- | -------------------------------- | --------------------------------- |
+| POST C                    | `{ "name": "Clothes" }`          | Category object, 201              |
+| GET C`?limit=20&offset=0` | None                             | Pagination/items of Category, 200 |
+| GET C`/:categoryId`       | None                             | Category, 200                     |
+| PATCH C`/:categoryId`     | `{ "name": "Everyday Clothes" }` | Updated Category, 200             |
+| DELETE C`/:categoryId`    | None                             | 204, empty                        |
 
 Category response:
 
@@ -198,13 +212,13 @@ field remains an equal JSON alias so existing clients continue working.
 
 Let `P = /businesses/:businessId/products`.
 
-| Method/path | Request body | Success |
-| --- | --- | --- |
-| POST P | CreateProduct below | Product object, 201 |
-| GET P`?limit=20&offset=0` | None | Pagination/items of Product, 200 |
-| GET P`/:productId` | None | Product, 200 |
-| PATCH P`/:productId` | One or more allowed metadata fields | Updated Product, 200 |
-| DELETE P`/:productId` | None | Soft-deactivate Product; 204, empty |
+| Method/path               | Request body                        | Success                             |
+| ------------------------- | ----------------------------------- | ----------------------------------- |
+| POST P                    | CreateProduct below                 | Product object, 201                 |
+| GET P`?limit=20&offset=0` | None                                | Pagination/items of Product, 200    |
+| GET P`/:productId`        | None                                | Product, 200                        |
+| PATCH P`/:productId`      | One or more allowed metadata fields | Updated Product, 200                |
+| DELETE P`/:productId`     | None                                | Soft-deactivate Product; 204, empty |
 
 Example create request:
 
@@ -220,16 +234,16 @@ Example create request:
 }
 ```
 
-| Field | Create/update semantics |
-| --- | --- |
-| name | Required on POST; trimmed nonblank string ≤200; optional PATCH, never null |
-| description | Optional string ≤5000; null clears |
+| Field       | Create/update semantics                                                                                                                  |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| name        | Required on POST; trimmed nonblank string ≤200; optional PATCH, never null                                                               |
+| description | Optional string ≤5000; null clears                                                                                                       |
 | externalKey | Optional trimmed string ≤200; unique per business, case-sensitive; null/blank clears, omitted PATCH preserves; use as Excel Product Code |
-| categoryId | Optional same-business Category UUID; null clears |
-| basePrice | Optional decimal string; null clears |
-| options | Optional object; default `{}` on POST; replaces definitions on PATCH; never null |
-| attributes | Optional object; replaces on PATCH; `{}` clears contents; never null input |
-| isActive | Optional boolean; default true on POST; PATCH true reactivates only Product |
+| categoryId  | Optional same-business Category UUID; null clears                                                                                        |
+| basePrice   | Optional decimal string; null clears                                                                                                     |
+| options     | Optional object; default `{}` on POST; replaces definitions on PATCH; never null                                                         |
+| attributes  | Optional object; replaces on PATCH; `{}` clears contents; never null input                                                               |
+| isActive    | Optional boolean; default true on POST; PATCH true reactivates only Product                                                              |
 
 POST with nonempty options creates **zero variants**. The exact response for the
 example above, before variants are added, is shaped as follows:
@@ -251,7 +265,13 @@ example above, before variants are added, is shaped as follows:
   "updatedAt": "2026-10-30T12:02:00.000Z",
   "isSellable": false,
   "variants": [],
-  "variantsPagination": { "limit": 20, "offset": 0, "totalCount": 0, "hasMore": false, "nextOffset": null }
+  "variantsPagination": {
+    "limit": 20,
+    "offset": 0,
+    "totalCount": 0,
+    "hasMore": false,
+    "nextOffset": null
+  }
 }
 ```
 
@@ -302,18 +322,22 @@ There is no import “choose existing product ID” field.
 
 Let `V = /businesses/:businessId/products/:productId/variants`.
 
-| Method/path | Request body | Success |
-| --- | --- | --- |
-| POST V | Required optionValues; optional sku and unitPrice | Variant, 201 |
-| GET V`?limit=20&offset=0` | None | Pagination/items of Variant, 200 |
-| GET V`/:variantId` | None | Variant, 200 |
-| PATCH V`/:variantId` | At least one of sku, unitPrice, optionValues, isActive | Updated Variant, 200 |
-| DELETE V`/:variantId` | None | Soft-deactivate Variant; 204, empty |
+| Method/path               | Request body                                           | Success                             |
+| ------------------------- | ------------------------------------------------------ | ----------------------------------- |
+| POST V                    | Required optionValues; optional sku and unitPrice      | Variant, 201                        |
+| GET V`?limit=20&offset=0` | None                                                   | Pagination/items of Variant, 200    |
+| GET V`/:variantId`        | None                                                   | Variant, 200                        |
+| PATCH V`/:variantId`      | At least one of sku, unitPrice, optionValues, isActive | Updated Variant, 200                |
+| DELETE V`/:variantId`     | None                                                   | Soft-deactivate Variant; 204, empty |
 
 POST example and response:
 
 ```json
-{ "sku": "TEE-RED-M", "optionValues": { "color": "Red", "size": "M" }, "unitPrice": "135.00" }
+{
+  "sku": "TEE-RED-M",
+  "optionValues": { "color": "Red", "size": "M" },
+  "unitPrice": "135.00"
+}
 ```
 
 ```json
@@ -378,7 +402,13 @@ No movement type, reference, delta, owner or order fields are accepted here.
 Success is 201:
 
 ```json
-{ "changed": true, "quantityBefore": null, "quantityAfter": 15, "quantityDelta": 15, "movementId": "55555555-5555-4555-8555-555555555555" }
+{
+  "changed": true,
+  "quantityBefore": null,
+  "quantityAfter": 15,
+  "quantityDelta": 15,
+  "movementId": "55555555-5555-4555-8555-555555555555"
+}
 ```
 
 An identical manual set returns 201 with changed=false, before/after equal,
@@ -387,29 +417,37 @@ not zero. A first null→0 tracking initialization is audited even with zero del
 
 ### Read history
 
-| Method/path | Body | Success |
-| --- | --- | --- |
-| GET `/businesses/:businessId/products/:productId/variants/:variantId/inventory/movements?limit=20&offset=0` | None | Pagination/items below, 200 |
-| GET `/businesses/:businessId/inventory/movements?limit=20&offset=0` | None | Same envelope across the Business, 200 |
+| Method/path                                                                                                 | Body | Success                                |
+| ----------------------------------------------------------------------------------------------------------- | ---- | -------------------------------------- |
+| GET `/businesses/:businessId/products/:productId/variants/:variantId/inventory/movements?limit=20&offset=0` | None | Pagination/items below, 200            |
+| GET `/businesses/:businessId/inventory/movements?limit=20&offset=0`                                         | None | Same envelope across the Business, 200 |
 
 ```json
 {
-  "pagination": { "limit": 20, "offset": 0, "totalCount": 1, "hasMore": false, "nextOffset": null },
-  "items": [{
-    "id": "55555555-5555-4555-8555-555555555555",
-    "catalogItemId": "33333333-3333-4333-8333-333333333333",
-    "variantId": "44444444-4444-4444-8444-444444444444",
-    "type": "MANUAL_ADJUSTMENT",
-    "quantityBefore": null,
-    "quantityAfter": 15,
-    "quantityDelta": 15,
-    "trackingBefore": false,
-    "trackingAfter": true,
-    "requestedQuantity": null,
-    "referenceType": null,
-    "referenceId": null,
-    "createdAt": "2026-10-30T12:04:00.000Z"
-  }]
+  "pagination": {
+    "limit": 20,
+    "offset": 0,
+    "totalCount": 1,
+    "hasMore": false,
+    "nextOffset": null
+  },
+  "items": [
+    {
+      "id": "55555555-5555-4555-8555-555555555555",
+      "catalogItemId": "33333333-3333-4333-8333-333333333333",
+      "variantId": "44444444-4444-4444-8444-444444444444",
+      "type": "MANUAL_ADJUSTMENT",
+      "quantityBefore": null,
+      "quantityAfter": 15,
+      "quantityDelta": 15,
+      "trackingBefore": false,
+      "trackingAfter": true,
+      "requestedQuantity": null,
+      "referenceType": null,
+      "referenceId": null,
+      "createdAt": "2026-10-30T12:04:00.000Z"
+    }
+  ]
 }
 ```
 
@@ -427,26 +465,26 @@ All nine operations below are implemented. Use a new job for each new file or
 corrected upload. Do not substitute Product CRUD responses for normalized import
 rows: their shapes differ.
 
-| Step | Method and path | Request | Success |
-| --- | --- | --- | --- |
-| Analyze | POST `/businesses/:businessId/imports/excel/analyze` | Multipart file, optional sheetName field | 201 |
-| Mapping suggestions | GET `/imports/:importId/mapping` | None | 200 |
-| Confirm mapping | PATCH `/imports/:importId/mapping` | JSON mapping array | 200 |
-| Validate | POST `/imports/:importId/validate` | No body required | 201 |
-| Validation Results | GET `/imports/:importId/validation-results?limit=50&offset=0` | None | 200 |
-| Preview | GET `/imports/:importId/preview?limit=50&offset=0` | None | 200 |
-| Execute | POST `/imports/:importId/execute` | No body required | 200 |
-| Status | GET `/imports/:importId` | None | 200 |
-| History | GET `/businesses/:businessId/imports?limit=20&offset=0` | None | 200 |
+| Step                | Method and path                                               | Request                                  | Success |
+| ------------------- | ------------------------------------------------------------- | ---------------------------------------- | ------- |
+| Analyze             | POST `/businesses/:businessId/imports/excel/analyze`          | Multipart file, optional sheetName field | 201     |
+| Mapping suggestions | GET `/imports/:importId/mapping`                              | None                                     | 200     |
+| Confirm mapping     | PATCH `/imports/:importId/mapping`                            | JSON mapping array                       | 200     |
+| Validate            | POST `/imports/:importId/validate`                            | No body required                         | 201     |
+| Validation Results  | GET `/imports/:importId/validation-results?limit=50&offset=0` | None                                     | 200     |
+| Preview             | GET `/imports/:importId/preview?limit=50&offset=0`            | None                                     | 200     |
+| Execute             | POST `/imports/:importId/execute`                             | No body required                         | 200     |
+| Status              | GET `/imports/:importId`                                      | None                                     | 200     |
+| History             | GET `/businesses/:businessId/imports?limit=20&offset=0`       | None                                     | 200     |
 
 ### 7.1 Workbook and grouping rules
 
 Example sheet named Products, header row 1; empty cells below are genuinely blank:
 
-| Product Code | Name | SKU | Category | Price | Variant Price | Quantity | Color | Size |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| TEE-001 | Studio Tee | IMPORT-RED-M | Clothes | 125.00 | 135.00 | 8 | Red | M |
-| TEE-001 | Studio Tee | IMPORT-BLUE-M | Clothes | 125.00 | | 12 | Blue | M |
+| Product Code | Name       | SKU           | Category | Price  | Variant Price | Quantity | Color | Size |
+| ------------ | ---------- | ------------- | -------- | ------ | ------------- | -------- | ----- | ---- |
+| TEE-001      | Studio Tee | IMPORT-RED-M  | Clothes  | 125.00 | 135.00        | 8        | Red   | M    |
+| TEE-001      | Studio Tee | IMPORT-BLUE-M | Clothes  | 125.00 |               | 12       | Blue  | M    |
 
 Headers are examples, not requirements: map arbitrary source labels explicitly.
 Same business + externalKey is Product identity; same Product + selected option
@@ -511,10 +549,46 @@ Response 201 for the two-row sheet:
   "sheetNames": ["Products"],
   "selectedSheetName": "Products",
   "headerRow": 1,
-  "headers": ["Product Code", "Name", "SKU", "Category", "Price", "Variant Price", "Quantity", "Color", "Size"],
+  "headers": [
+    "Product Code",
+    "Name",
+    "SKU",
+    "Category",
+    "Price",
+    "Variant Price",
+    "Quantity",
+    "Color",
+    "Size"
+  ],
   "sampleRows": [
-    { "rowNumber": 2, "values": ["TEE-001", "Studio Tee", "IMPORT-RED-M", "Clothes", "125.00", "135.00", 8, "Red", "M"] },
-    { "rowNumber": 3, "values": ["TEE-001", "Studio Tee", "IMPORT-BLUE-M", "Clothes", "125.00", null, 12, "Blue", "M"] }
+    {
+      "rowNumber": 2,
+      "values": [
+        "TEE-001",
+        "Studio Tee",
+        "IMPORT-RED-M",
+        "Clothes",
+        "125.00",
+        "135.00",
+        8,
+        "Red",
+        "M"
+      ]
+    },
+    {
+      "rowNumber": 3,
+      "values": [
+        "TEE-001",
+        "Studio Tee",
+        "IMPORT-BLUE-M",
+        "Clothes",
+        "125.00",
+        null,
+        12,
+        "Blue",
+        "M"
+      ]
+    }
   ],
   "totalRows": 2
 }
@@ -537,9 +611,30 @@ response is:
   "importId": "66666666-6666-4666-8666-666666666666",
   "status": "MAPPING_REQUIRED",
   "columns": [
-    { "sourceColumn": "Product Code", "sourceColumnIndex": 1, "samples": ["TEE-001"], "suggestedType": "STANDARD", "suggestedTarget": "externalKey", "displayLabel": "Product Code (groups variants)" },
-    { "sourceColumn": "Name", "sourceColumnIndex": 2, "samples": ["Studio Tee"], "suggestedType": "STANDARD", "suggestedTarget": "name", "displayLabel": "Product Name" },
-    { "sourceColumn": "Configuration", "sourceColumnIndex": 3, "samples": ["Red", "Blue"], "suggestedType": "UNMAPPED", "suggestedTarget": null, "displayLabel": null }
+    {
+      "sourceColumn": "Product Code",
+      "sourceColumnIndex": 1,
+      "samples": ["TEE-001"],
+      "suggestedType": "STANDARD",
+      "suggestedTarget": "externalKey",
+      "displayLabel": "Product Code (groups variants)"
+    },
+    {
+      "sourceColumn": "Name",
+      "sourceColumnIndex": 2,
+      "samples": ["Studio Tee"],
+      "suggestedType": "STANDARD",
+      "suggestedTarget": "name",
+      "displayLabel": "Product Name"
+    },
+    {
+      "sourceColumn": "Configuration",
+      "sourceColumnIndex": 3,
+      "samples": ["Red", "Blue"],
+      "suggestedType": "UNMAPPED",
+      "suggestedTarget": null,
+      "displayLabel": null
+    }
   ],
   "mapping": null
 }
@@ -549,12 +644,12 @@ That is an independent three-column illustration; the nine-column sheet returns
 nine column objects using the same schema. Suggestions do not save mapping.
 Unknown or ambiguous headers stay UNMAPPED. Always let the user confirm mappings.
 
-| type | target |
-| --- | --- |
-| STANDARD | One of externalKey, name, sku, description, category, basePrice, unitPrice, stockQuantity |
-| ATTRIBUTE | Safe product attribute key matching `^[a-z][a-z0-9_]{0,63}$` |
-| VARIANT_ATTRIBUTE | Trimmed business-defined option name, 1–60 code units; e.g. color or Pack size |
-| IGNORE / UNMAPPED | Explicit JSON null |
+| type              | target                                                                                    |
+| ----------------- | ----------------------------------------------------------------------------------------- |
+| STANDARD          | One of externalKey, name, sku, description, category, basePrice, unitPrice, stockQuantity |
+| ATTRIBUTE         | Safe product attribute key matching `^[a-z][a-z0-9_]{0,63}$`                              |
+| VARIANT_ATTRIBUTE | Trimmed business-defined option name, 1–60 code units; e.g. color or Pack size            |
+| IGNORE / UNMAPPED | Explicit JSON null                                                                        |
 
 Do not map stockQuantity into ATTRIBUTE and expect stock writes. Do not map SKU
 to externalKey for a configurable Product. Each standard target is mapped at most
@@ -568,15 +663,60 @@ PATCH request for the nine-column sheet:
 ```json
 {
   "mapping": [
-    { "sourceColumn": "Product Code", "sourceColumnIndex": 1, "type": "STANDARD", "target": "externalKey" },
-    { "sourceColumn": "Name", "sourceColumnIndex": 2, "type": "STANDARD", "target": "name" },
-    { "sourceColumn": "SKU", "sourceColumnIndex": 3, "type": "STANDARD", "target": "sku" },
-    { "sourceColumn": "Category", "sourceColumnIndex": 4, "type": "STANDARD", "target": "category" },
-    { "sourceColumn": "Price", "sourceColumnIndex": 5, "type": "STANDARD", "target": "basePrice" },
-    { "sourceColumn": "Variant Price", "sourceColumnIndex": 6, "type": "STANDARD", "target": "unitPrice" },
-    { "sourceColumn": "Quantity", "sourceColumnIndex": 7, "type": "STANDARD", "target": "stockQuantity" },
-    { "sourceColumn": "Color", "sourceColumnIndex": 8, "type": "VARIANT_ATTRIBUTE", "target": "color" },
-    { "sourceColumn": "Size", "sourceColumnIndex": 9, "type": "VARIANT_ATTRIBUTE", "target": "size" }
+    {
+      "sourceColumn": "Product Code",
+      "sourceColumnIndex": 1,
+      "type": "STANDARD",
+      "target": "externalKey"
+    },
+    {
+      "sourceColumn": "Name",
+      "sourceColumnIndex": 2,
+      "type": "STANDARD",
+      "target": "name"
+    },
+    {
+      "sourceColumn": "SKU",
+      "sourceColumnIndex": 3,
+      "type": "STANDARD",
+      "target": "sku"
+    },
+    {
+      "sourceColumn": "Category",
+      "sourceColumnIndex": 4,
+      "type": "STANDARD",
+      "target": "category"
+    },
+    {
+      "sourceColumn": "Price",
+      "sourceColumnIndex": 5,
+      "type": "STANDARD",
+      "target": "basePrice"
+    },
+    {
+      "sourceColumn": "Variant Price",
+      "sourceColumnIndex": 6,
+      "type": "STANDARD",
+      "target": "unitPrice"
+    },
+    {
+      "sourceColumn": "Quantity",
+      "sourceColumnIndex": 7,
+      "type": "STANDARD",
+      "target": "stockQuantity"
+    },
+    {
+      "sourceColumn": "Color",
+      "sourceColumnIndex": 8,
+      "type": "VARIANT_ATTRIBUTE",
+      "target": "color"
+    },
+    {
+      "sourceColumn": "Size",
+      "sourceColumnIndex": 9,
+      "type": "VARIANT_ATTRIBUTE",
+      "target": "size"
+    }
   ]
 }
 ```
@@ -595,7 +735,12 @@ POST validate with no body or `{}`. Response 201:
 {
   "importId": "66666666-6666-4666-8666-666666666666",
   "status": "READY",
-  "summary": { "totalRows": 2, "validRows": 2, "invalidRows": 0, "skippedRows": 0 }
+  "summary": {
+    "totalRows": 2,
+    "validRows": 2,
+    "invalidRows": 0,
+    "skippedRows": 0
+  }
 }
 ```
 
@@ -610,17 +755,35 @@ GET validation-results with `limit=1&offset=0` returns 200:
 {
   "importId": "66666666-6666-4666-8666-666666666666",
   "status": "READY",
-  "summary": { "totalRows": 2, "validRows": 2, "invalidRows": 0, "skippedRows": 0 },
-  "pagination": { "limit": 1, "offset": 0, "totalCount": 2, "hasMore": true, "nextOffset": 1 },
-  "validRows": [{
-    "rowNumber": 2,
-    "data": {
-      "externalKey": "TEE-001", "name": "Studio Tee", "sku": "IMPORT-RED-M",
-      "category": "Clothes", "basePrice": "125.00", "unitPrice": "135.00", "stockQuantity": 8,
-      "variantAttributes": { "color": "Red", "size": "M" },
-      "options": { "color": ["Red", "Blue"], "size": ["M"] }
+  "summary": {
+    "totalRows": 2,
+    "validRows": 2,
+    "invalidRows": 0,
+    "skippedRows": 0
+  },
+  "pagination": {
+    "limit": 1,
+    "offset": 0,
+    "totalCount": 2,
+    "hasMore": true,
+    "nextOffset": 1
+  },
+  "validRows": [
+    {
+      "rowNumber": 2,
+      "data": {
+        "externalKey": "TEE-001",
+        "name": "Studio Tee",
+        "sku": "IMPORT-RED-M",
+        "category": "Clothes",
+        "basePrice": "125.00",
+        "unitPrice": "135.00",
+        "stockQuantity": 8,
+        "variantAttributes": { "color": "Red", "size": "M" },
+        "options": { "color": ["Red", "Blue"], "size": ["M"] }
+      }
     }
-  }],
+  ],
   "invalidRows": []
 }
 ```
@@ -646,19 +809,44 @@ is advisory. Initial preview for the nine-column sheet, `limit=1&offset=0`:
 {
   "importId": "66666666-6666-4666-8666-666666666666",
   "status": "READY",
-  "summary": { "totalRows": 2, "validRows": 2, "invalidRows": 0, "skippedRows": 0, "willInsert": 2, "willUpdate": 0, "unchanged": 0 },
-  "pagination": { "limit": 1, "offset": 0, "totalCount": 2, "hasMore": true, "nextOffset": 1 },
-  "inserts": [{
-    "rowNumber": 2, "externalKey": "TEE-001", "variantAttributes": { "color": "Red", "size": "M" },
-    "action": "INSERT",
-    "data": {
-      "externalKey": "TEE-001", "name": "Studio Tee", "sku": "IMPORT-RED-M",
-      "category": "Clothes", "basePrice": "125.00", "unitPrice": "135.00", "stockQuantity": 8,
+  "summary": {
+    "totalRows": 2,
+    "validRows": 2,
+    "invalidRows": 0,
+    "skippedRows": 0,
+    "willInsert": 2,
+    "willUpdate": 0,
+    "unchanged": 0
+  },
+  "pagination": {
+    "limit": 1,
+    "offset": 0,
+    "totalCount": 2,
+    "hasMore": true,
+    "nextOffset": 1
+  },
+  "inserts": [
+    {
+      "rowNumber": 2,
+      "externalKey": "TEE-001",
       "variantAttributes": { "color": "Red", "size": "M" },
-      "options": { "color": ["Red", "Blue"], "size": ["M"] }
+      "action": "INSERT",
+      "data": {
+        "externalKey": "TEE-001",
+        "name": "Studio Tee",
+        "sku": "IMPORT-RED-M",
+        "category": "Clothes",
+        "basePrice": "125.00",
+        "unitPrice": "135.00",
+        "stockQuantity": 8,
+        "variantAttributes": { "color": "Red", "size": "M" },
+        "options": { "color": ["Red", "Blue"], "size": ["M"] }
+      }
     }
-  }],
-  "updates": [], "unchanged": [], "invalidRows": []
+  ],
+  "updates": [],
+  "unchanged": [],
+  "invalidRows": []
 }
 ```
 
@@ -707,10 +895,10 @@ uses the same summary/pagination envelope as the initial preview.
 price = string/null, stockQuantity = integer/null, attributes/options = objects.
 For **categoryId** specifically:
 
-| Position | Actual representation |
-| --- | --- |
-| from | Existing UUID string or null |
-| to, existing matching Category | UUID string |
+| Position                                    | Actual representation                      |
+| ------------------------------------------- | ------------------------------------------ |
+| from                                        | Existing UUID string or null               |
+| to, existing matching Category              | UUID string                                |
 | to, Category to be created during execution | `{ "create": "Normalized category name" }` |
 
 The `{create: name}` value is a proposal, never a persistent Category ID and never
@@ -733,14 +921,33 @@ Do not automatically retry after network timeout. Response 200 for the example:
   "importId": "66666666-6666-4666-8666-666666666666",
   "status": "COMPLETED",
   "summary": {
-    "totalRows": 2, "validRows": 2, "invalidRows": 0, "skippedRows": 0,
-    "insertedCount": 2, "updatedCount": 0, "failedCount": 0, "unchangedCount": 0
+    "totalRows": 2,
+    "validRows": 2,
+    "invalidRows": 0,
+    "skippedRows": 0,
+    "insertedCount": 2,
+    "updatedCount": 0,
+    "failedCount": 0,
+    "unchangedCount": 0
   },
   "inserted": [
-    { "rowNumber": 2, "externalKey": "TEE-001", "catalogItemId": "88888888-8888-4888-8888-888888888888", "variantId": "99999999-9999-4999-8999-999999999999" },
-    { "rowNumber": 3, "externalKey": "TEE-001", "catalogItemId": "88888888-8888-4888-8888-888888888888", "variantId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }
+    {
+      "rowNumber": 2,
+      "externalKey": "TEE-001",
+      "catalogItemId": "88888888-8888-4888-8888-888888888888",
+      "variantId": "99999999-9999-4999-8999-999999999999"
+    },
+    {
+      "rowNumber": 3,
+      "externalKey": "TEE-001",
+      "catalogItemId": "88888888-8888-4888-8888-888888888888",
+      "variantId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    }
   ],
-  "updated": [], "unchanged": [], "failedRows": [], "invalidRows": []
+  "updated": [],
+  "unchanged": [],
+  "failedRows": [],
+  "invalidRows": []
 }
 ```
 
@@ -773,8 +980,13 @@ GET status returns this compact object (200):
   "fileName": "products.xlsx",
   "sheetName": "Products",
   "headerRow": 1,
-  "totalRows": 2, "validRows": 2, "invalidRows": 0, "skippedRows": 0,
-  "insertedCount": 2, "updatedCount": 0, "failedCount": 0,
+  "totalRows": 2,
+  "validRows": 2,
+  "invalidRows": 0,
+  "skippedRows": 0,
+  "insertedCount": 2,
+  "updatedCount": 0,
+  "failedCount": 0,
   "createdAt": "2026-10-30T12:10:00.000Z",
   "updatedAt": "2026-10-30T12:11:00.000Z"
 }
@@ -806,31 +1018,41 @@ Product/Variant timestamps untouched. There is no file-hash deduplication.
 Standard non-2xx envelope:
 
 ```json
-{ "statusCode": 409, "code": "VARIANT_SKU_CONFLICT", "message": "SKU is already assigned in this business", "error": "Conflict" }
+{
+  "statusCode": 409,
+  "code": "VARIANT_SKU_CONFLICT",
+  "message": "SKU is already assigned in this business",
+  "error": "Conflict"
+}
 ```
 
 The message text above is illustrative; branch on code/status, not prose. message
 is either a string or array of strings (especially DTO validation):
 
 ```json
-{ "statusCode": 400, "code": "VALIDATION_ERROR", "message": ["name must be a string"], "error": "Bad Request" }
+{
+  "statusCode": 400,
+  "code": "VALIDATION_ERROR",
+  "message": ["name must be a string"],
+  "error": "Bad Request"
+}
 ```
 
-| HTTP/code examples | Android handling |
-| --- | --- |
-| 400 VALIDATION_ERROR / VARIANT_OPTIONS_INVALID | Correct body, unknown fields, UUID/query or option selections |
-| 401 UNAUTHORIZED / INVALID_CREDENTIALS / AUTH_REFRESH_INVALID | Single-flight refresh where appropriate, otherwise login; incorrect credentials are not a refresh trigger |
-| 404 NOT_FOUND / BUSINESS_NOT_FOUND / CATEGORY_NOT_FOUND / PRODUCT_NOT_FOUND / VARIANT_NOT_FOUND | Resource missing, wrong parent or no active ownership; do not infer another tenant's existence |
-| 409 CATEGORY_NAME_CONFLICT / CATEGORY_IN_USE | Refresh categories or choose a different name |
-| 409 VARIANT_SKU_CONFLICT / VARIANT_OPTIONS_CONFLICT | Reservation exists, including inactive rows; offer reactivation/edit instead of duplicate creation |
-| 409 PRODUCT_OPTIONS_IN_USE / PRODUCT_INACTIVE / PRODUCT_WRITE_CONFLICT | Refresh definitions/lifecycle and resolve conflict; do not silently delete variants |
-| 409 INVENTORY_INACTIVE / INVENTORY_CONFLICT / INVENTORY_INSUFFICIENT_STOCK | Re-read stock/lifecycle; insufficient-stock order checks are internal, not a new Orders endpoint |
-| 400 EXCEL_FILE_REQUIRED / EXCEL_FILE_UNSUPPORTED / EXCEL_FILE_INVALID / EXCEL_FILE_UNREADABLE / EXCEL_SHEET_NOT_FOUND | Correct upload/sheet and retry with a new file when necessary |
-| 413 EXCEL_FILE_TOO_LARGE | Reject file above 10 MiB before upload |
-| 409 IMPORT_NOT_AWAITING_MAPPING / IMPORT_MAPPING_CHANGED / IMPORT_NOT_AWAITING_VALIDATION / IMPORT_NOT_READY / IMPORT_EXECUTION_ALREADY_STARTED | Fetch status; do not blindly replay a write |
-| 409 IMPORT_WORKBOOK_UNAVAILABLE / IMPORT_VALIDATION_RESULTS_UNAVAILABLE | Retained file/snapshot missing or obsolete; create a new job |
-| 500 IMPORT_WORKBOOK_READ_FAILED / IMPORT_VALIDATION_FAILED / IMPORT_EXECUTION_FAILED | Inspect status; earlier groups may exist; surface safe error and avoid duplicate writes |
-| 429 AUTH_RATE_LIMITED / 503 AUTH_RATE_LIMIT_UNAVAILABLE | Respect Retry-After; avoid parallel retry storms |
+| HTTP/code examples                                                                                                                              | Android handling                                                                                          |
+| ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| 400 VALIDATION_ERROR / VARIANT_OPTIONS_INVALID                                                                                                  | Correct body, unknown fields, UUID/query or option selections                                             |
+| 401 UNAUTHORIZED / INVALID_CREDENTIALS / AUTH_REFRESH_INVALID                                                                                   | Single-flight refresh where appropriate, otherwise login; incorrect credentials are not a refresh trigger |
+| 404 NOT_FOUND / BUSINESS_NOT_FOUND / CATEGORY_NOT_FOUND / PRODUCT_NOT_FOUND / VARIANT_NOT_FOUND                                                 | Resource missing, wrong parent or no active ownership; do not infer another tenant's existence            |
+| 409 CATEGORY_NAME_CONFLICT / CATEGORY_IN_USE                                                                                                    | Refresh categories or choose a different name                                                             |
+| 409 VARIANT_SKU_CONFLICT / VARIANT_OPTIONS_CONFLICT                                                                                             | Reservation exists, including inactive rows; offer reactivation/edit instead of duplicate creation        |
+| 409 PRODUCT_OPTIONS_IN_USE / PRODUCT_INACTIVE / PRODUCT_WRITE_CONFLICT                                                                          | Refresh definitions/lifecycle and resolve conflict; do not silently delete variants                       |
+| 409 INVENTORY_INACTIVE / INVENTORY_CONFLICT / INVENTORY_INSUFFICIENT_STOCK                                                                      | Re-read stock/lifecycle; insufficient-stock order checks are internal, not a new Orders endpoint          |
+| 400 EXCEL_FILE_REQUIRED / EXCEL_FILE_UNSUPPORTED / EXCEL_FILE_INVALID / EXCEL_FILE_UNREADABLE / EXCEL_SHEET_NOT_FOUND                           | Correct upload/sheet and retry with a new file when necessary                                             |
+| 413 EXCEL_FILE_TOO_LARGE                                                                                                                        | Reject file above 10 MiB before upload                                                                    |
+| 409 IMPORT_NOT_AWAITING_MAPPING / IMPORT_MAPPING_CHANGED / IMPORT_NOT_AWAITING_VALIDATION / IMPORT_NOT_READY / IMPORT_EXECUTION_ALREADY_STARTED | Fetch status; do not blindly replay a write                                                               |
+| 409 IMPORT_WORKBOOK_UNAVAILABLE / IMPORT_VALIDATION_RESULTS_UNAVAILABLE                                                                         | Retained file/snapshot missing or obsolete; create a new job                                              |
+| 500 IMPORT_WORKBOOK_READ_FAILED / IMPORT_VALIDATION_FAILED / IMPORT_EXECUTION_FAILED                                                            | Inspect status; earlier groups may exist; surface safe error and avoid duplicate writes                   |
+| 429 AUTH_RATE_LIMITED / 503 AUTH_RATE_LIMIT_UNAVAILABLE                                                                                         | Respect Retry-After; avoid parallel retry storms                                                          |
 
 Mapping errors generally use MAPPING_* codes for missing name mappings,
 unknown/ambiguous source columns, duplicate targets and invalid custom keys.
@@ -843,7 +1065,16 @@ Row-level failures are **inside successful HTTP responses**, not this envelope.
 An invalid row has exactly rowNumber and an errors array:
 
 ```json
-{ "rowNumber": 3, "errors": [{ "field": "sku", "code": "DUPLICATE_SKU", "message": "SKU occurs more than once in this workbook" }] }
+{
+  "rowNumber": 3,
+  "errors": [
+    {
+      "field": "sku",
+      "code": "DUPLICATE_SKU",
+      "message": "SKU occurs more than once in this workbook"
+    }
+  ]
+}
 ```
 
 Relevant row codes include REQUIRED, TEXT_TOO_LONG, REQUIRED_OPTION, INVALID_DECIMAL,
@@ -856,7 +1087,11 @@ another row with the same Product code is invalid.
 Runtime failedRows use a different shape:
 
 ```json
-{ "rowNumber": 3, "code": "EXECUTION_CONFLICT", "message": "Product group conflicts with current data; no row in this group was applied" }
+{
+  "rowNumber": 3,
+  "code": "EXECUTION_CONFLICT",
+  "message": "Product group conflicts with current data; no row in this group was applied"
+}
 ```
 
 Other runtime group errors use ROW_EXECUTION_FAILED. validRows in the validation
@@ -978,32 +1213,32 @@ unknown fields; request encoding must still whitelist supported fields.
 ## 10. Breaking changes and Android migration checklist
 
 - [ ] Remove Product/Catalog stockQuantity and trackInventory read/write assumptions.
-  Read quantity/tracking from each Variant, including the `{}` Default Variant.
+      Read quantity/tracking from each Variant, including the `{}` Default Variant.
 - [ ] Replace removed `/businesses/:businessId/catalog-items/:catalogItemId/inventory/adjust`
-  and `/inventory/movements` item routes with the nested Product/Variant routes.
-  There is no compatibility alias; old item routes return 404.
+      and `/inventory/movements` item routes with the nested Product/Variant routes.
+      There is no compatibility alias; old item routes return 404.
 - [ ] Update movement DTOs: variantId, trackingBefore/After, requestedQuantity;
-  quantityAfter is now nullable. Delta may be 0 even for an audited transition.
+      quantityAfter is now nullable. Delta may be 0 even for an audited transition.
 - [ ] Render dynamic option names/values; do not hardcode color/size. Handle empty
-  configured Variant lists and paginate beyond embedded Product variants.
+      configured Variant lists and paginate beyond embedded Product variants.
 - [ ] Treat stock edits as absolute sets. Never calculate order deductions by
-  calling manual adjustment from Android; Orders requires server transactions.
+      calling manual adjustment from Android; Orders requires server transactions.
 - [ ] Separate Product code (externalKey) from Variant SKU in import mapping/UI.
-  Allow repeated Product codes and reject duplicate combinations instead.
+      Allow repeated Product codes and reject duplicate combinations instead.
 - [ ] Require product name/code mappings, and SKU/all options on configurable rows.
-  Show Product-group errors together; prevent a “READY means all valid” assumption.
+      Show Product-group errors together; prevent a “READY means all valid” assumption.
 - [ ] Decode preview action values and dynamic changes, including `{create: name}`;
-  do not use that object as a Category UUID.
+      do not use that object as a Category UUID.
 - [ ] Keep preview and executed-row DTOs separate. Count Variant rows, not Products.
 - [ ] Use one combined pagination offset for row arrays; summary is workbook-wide.
 - [ ] Preserve blank-stock semantics. Explicit 0 enables tracked zero stock;
-  blank does not mean zero, deletion, or disabling tracking.
+      blank does not mean zero, deletion, or disabling tracking.
 - [ ] Use a new job for corrected/repeated imports. Reuse stable identities and
-  investigate status after timeouts instead of replaying execute.
+      investigate status after timeouts instead of replaying execute.
 - [ ] Replace pre-upgrade jobs/mappings as necessary. Old validation snapshot
-  version 1 returns 409 IMPORT_VALIDATION_RESULTS_UNAVAILABLE; it is not converted.
+      version 1 returns 409 IMPORT_VALIDATION_RESULTS_UNAVAILABLE; it is not converted.
 - [ ] Apply Bearer/Business selection to every resource call; single-flight refresh;
-  clear account-specific caches and selected business when logging out.
+      clear account-specific caches and selected business when logging out.
 - [ ] Disable token/body/OTP logging; implement the OTP flow below.
 
 Use `/businesses/:businessId/products` as the single product CRUD API.
@@ -1027,7 +1262,11 @@ There is no verify-only endpoint: server verification and password change
 happen together when submitting:
 
 ```json
-{ "email": "owner@example.com", "otp": "01234567", "newPassword": "NewSecurePassword123!" }
+{
+  "email": "owner@example.com",
+  "otp": "01234567",
+  "newPassword": "NewSecurePassword123!"
+}
 ```
 
 POST this body to `/auth/reset-password`. Expect 204 empty on success, clear
@@ -1052,14 +1291,14 @@ Android and Backend must adopt this request contract together before release.
 
 ## 12. Implemented versus deferred, and integration decisions
 
-| Area | Implemented now | Not provided / requires separate approval |
-| --- | --- | --- |
-| Products/Categories/Variants | Scoped CRUD, dynamic options, soft lifecycle, default creation | Automatic simple/configurable conversion or Variant purge |
-| Inventory | Variant stock, audited atomic manual/import writes, internal idempotent Orders interface | Android order creation, public deduction/reservation endpoints |
-| Import | Complete synchronous workflow, stable identities, per-group rollback, read pagination | Durable queue, resumable execution, file-hash dedup, select-existing-Product mapping |
-| Storage | Existing local file/snapshot storage | Persistent Railway volume/object storage; deliberately postponed |
-| Auth | Multi-business ownership, sessions/refresh/reset and shared DB limiter | Railway ingress/client-IP problem is not solved by App Links |
-| App Links | Public association JSON; recovery uses email OTP | Release certificate verification; Brevo sender setup and real inbox checks |
+| Area                         | Implemented now                                                                                   | Not provided / requires separate approval                                              |
+| ---------------------------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Products/Categories/Variants | Scoped CRUD, dynamic options, soft lifecycle, default creation                                    | Automatic simple/configurable conversion or Variant purge                              |
+| Inventory and Orders         | Variant stock, audited atomic manual/import writes; owner order create/list/detail/approve/reject | Android UI readiness is unverified; no public arbitrary deduction/reservation endpoint |
+| Import                       | Complete synchronous workflow, stable identities, per-group rollback, read pagination             | Durable queue, resumable execution, file-hash dedup, select-existing-Product mapping   |
+| Storage                      | Existing local file/snapshot storage                                                              | Persistent Railway volume/object storage; deliberately postponed                       |
+| Auth                         | Multi-business ownership, sessions/refresh/reset and shared DB limiter                            | Railway ingress/client-IP problem is not solved by App Links                           |
+| App Links                    | Public association JSON; recovery uses email OTP                                                  | Release certificate verification; Brevo sender setup and real inbox checks             |
 
 Contract details that Android must handle explicitly, rather than guessing:
 
@@ -1098,6 +1337,6 @@ response construction, especially:
 - `src/auth/auth.guard.ts`, `auth.controller.ts`, `auth-sessions.service.ts`,
   `password-reset.mailer.ts`, `src/app-links.controller.ts`.
 - Committed `docs/products-api.md`, `docs/inventory-api.md`, `docs/imports-api.md`,
-  `docs/auth-api.md`, `docs/android-app-links.md`, and `docs/variant-inventory-rollout.md`.
+  `docs/auth-api.md`, `docs/android-app-links.md`, and `docs/database.md`.
 
 No live deployment, database or Android device was accessed to author this guide.

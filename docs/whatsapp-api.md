@@ -1,7 +1,9 @@
 # WhatsApp (Meta Cloud API)
 
-**State:** ready on a local backend with Meta's test number; not enabled on
-Railway. `WHATSAPP_ENABLED="false"` by default, like `AI_INTEGRATION_ENABLED`.
+**State:** implemented in the local Backend. Historical test-number observations
+are not current provider or deployment acceptance. Live Railway/Meta configuration
+has not been reverified. `WHATSAPP_ENABLED="false"` by default, like
+`AI_INTEGRATION_ENABLED`.
 
 | Part                                    | State      | Who                         |
 | --------------------------------------- | ---------- | --------------------------- |
@@ -53,7 +55,7 @@ a retry) answers 500 and Meta resends later, which is safe because a repeated
 an invalid customer number, or a `wamid` that belongs to another business.
 Replies are sent after the 200; a repeated `wamid` is passed on too, and the
 reply service skips it when it is already answered or being answered
-([ai-replies.md](ai-replies.md#once-only)). Both routes answer `503
+([reply and recovery behavior](ai-integration.md#reply-persistence-handoff-and-recovery)). Both routes answer `503
 WHATSAPP_UNAVAILABLE` while switched off.
 
 | Meta message type                  | Stored as                                         |
@@ -76,7 +78,7 @@ then it becomes `SENT` (with the `wamid`) or `FAILED`. Meta busy (429, 5xx) or
 no connection at all: it stays `PENDING` and is tried again after 30 seconds and
 2 minutes, 3 tries in total. Any other failure, a timeout included, is `FAILED`
 at once and never sent again automatically (see the
-[retry policy](ai-replies.md#send-retry-policy)).
+[retry policy](ai-integration.md#reply-persistence-handoff-and-recovery)).
 
 ## Configuration
 

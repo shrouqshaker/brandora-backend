@@ -195,7 +195,7 @@ result only changes a `PENDING` message of the same business: `SENT` with
 WhatsApp's id, or `FAILED`. A WhatsApp id that is already stored on another
 message answers `409 EXTERNAL_MESSAGE_ID_CONFLICT` and the message stays
 `PENDING`. While Meta is busy a message stays `PENDING` and is tried again (3
-tries in total, [retry policy](ai-replies.md#send-retry-policy)). A `FAILED`
+tries in total, [retry policy](ai-integration.md#reply-persistence-handoff-and-recovery)). A `FAILED`
 message is never sent again as the same row; sending it again is a new message.
 
 Errors: same as Conversations.
@@ -268,6 +268,12 @@ Nothing is truncated silently.
 
 ## Database rollout and rollback
 
+This section records the original foundation rollout. Its rollback script targets
+that historical schema and is not a current nineteen-migration recovery plan.
+Later Message/WhatsApp/Order dependencies require a separately reviewed recovery
+procedure. Do not execute historical rollback SQL against a current deployment.
+See [current database guidance](database.md#migration-strategy).
+
 The migration `20261107094154_add_customers_conversations` only adds five enums,
 three tables, their indexes and foreign keys. It does not change any existing
 table or row. `npm run test:conversations:postgres` proves this on a disposable
@@ -290,7 +296,7 @@ database matches main again with the old rows untouched, and deploys again.
 ## Trying it locally
 
 ```bash
-npx prisma migrate dev          # applies 20261107094154_add_customers_conversations
+npm run prisma:deploy           # only an approved disposable localhost target
 npx prisma db seed              # 2 businesses, 5 customers, 12 messages (localhost only, safe to repeat)
 npm run start:dev
 ```
@@ -300,6 +306,11 @@ and English, one closed conversation, one customer without a name). Business B,
 `b0000000-0000-4000-8000-000000000002`, has a customer with the same phone as
 one in A, to show uniqueness is per business. The seed refuses to run unless
 `DATABASE_URL` is localhost.
+
+The seed does not create User/OWNER memberships. These fixed demo businesses are
+not automatically accessible to the signed-in owner. Use an owned Business and
+reviewed local webhook fixtures for an authorized API walkthrough; do not grant
+access by guessing IDs or running production SQL. See [testing](testing.md).
 
 ## Tests
 

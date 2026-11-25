@@ -1,16 +1,16 @@
 # Excel Import handoff for Yasmina — Android
 
 **Contract reviewed: current local Backend, 2026-11-04. Not a production release.**
-The Product refactor and images passed local PostgreSQL and isolated Neon-branch
-checks in the preceding implementation task. The inspected Railway deployment
-still uses the older physical CatalogItem schema. The physical Product rename
+The Product refactor and images passed historical local PostgreSQL and isolated
+Neon-branch checks. The deployment inspected at that time used the older physical
+CatalogItem schema; its present state has not been reverified. The physical Product rename
 requires a coordinated database/Backend release. Do not assume this document's
 new fields or image routes are available on the public Railway URL.
 
 Use this guide for Android implementation against an explicitly agreed local
 test Backend with a disposable database. No production access or migration is
 needed to follow this document. Live Cloudinary upload and Android image display
-remain unverified. See [release evidence](product-domain-verification.md) and
+remain unverified. See [release evidence](testing.md#historical-evidence) and
 [database release gate](product-domain-database-rollout.md).
 
 ## 1. Connection, ownership and endpoint map
@@ -31,17 +31,17 @@ job/Business/Product/Variant returns 404 rather than exposing it.
 
 These are **all nine existing Import endpoints**:
 
-| Step | Method and exact path | Success | Input |
-| --- | --- | --- | --- |
-| Analyze/upload | `POST /businesses/:businessId/imports/excel/analyze` | 201 | Multipart `file`, optional `sheetName` |
-| Suggest/read mapping | `GET /imports/:importId/mapping` | 200 | None |
-| Confirm mapping | `PATCH /imports/:importId/mapping` | 200 | JSON `mapping` array |
-| Validate | `POST /imports/:importId/validate` | 201 | No body required; `{}` accepted |
-| Stored validation page | `GET /imports/:importId/validation-results` | 200 | Optional `limit`, `offset` query |
-| Current preview | `GET /imports/:importId/preview` | 200 | Optional `limit`, `offset` query |
-| Execute once | `POST /imports/:importId/execute` | 200 | No body required; `{}` accepted |
-| Job status/counters | `GET /imports/:importId` | 200 | None |
-| Business import history | `GET /businesses/:businessId/imports` | 200 | Optional `limit`, `offset` query |
+| Step                    | Method and exact path                                | Success | Input                                  |
+| ----------------------- | ---------------------------------------------------- | ------- | -------------------------------------- |
+| Analyze/upload          | `POST /businesses/:businessId/imports/excel/analyze` | 201     | Multipart `file`, optional `sheetName` |
+| Suggest/read mapping    | `GET /imports/:importId/mapping`                     | 200     | None                                   |
+| Confirm mapping         | `PATCH /imports/:importId/mapping`                   | 200     | JSON `mapping` array                   |
+| Validate                | `POST /imports/:importId/validate`                   | 201     | No body required; `{}` accepted        |
+| Stored validation page  | `GET /imports/:importId/validation-results`          | 200     | Optional `limit`, `offset` query       |
+| Current preview         | `GET /imports/:importId/preview`                     | 200     | Optional `limit`, `offset` query       |
+| Execute once            | `POST /imports/:importId/execute`                    | 200     | No body required; `{}` accepted        |
+| Job status/counters     | `GET /imports/:importId`                             | 200     | None                                   |
+| Business import history | `GET /businesses/:businessId/imports`                | 200     | Optional `limit`, `offset` query       |
 
 No separate worksheet-update, header-row-update, execution-result retrieval,
 retry/resume, cancel, delete-job or downloadable error-report endpoint exists.
@@ -52,12 +52,12 @@ Do not construct one from status enum names.
 One nonblank Excel data row represents **one Variant**, not necessarily a separate
 Product. Row numbers in responses are the original 1-based Excel row positions.
 
-| Identity | Meaning |
-| --- | --- |
-| Product `id` | Backend UUID; used in Products routes, not taken from Excel |
-| `externalKey` | Stable, trimmed, case-sensitive Product grouping code from Excel; unique per Business, including inactive Products |
-| Variant `id` | Backend UUID; used in Variant/inventory routes |
-| `sku` | Optional identifier for a simple Variant; required for every configurable Excel Variant; reserved per Business, including inactive Variants |
+| Identity      | Meaning                                                                                                                                     |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Product `id`  | Backend UUID; used in Products routes, not taken from Excel                                                                                 |
+| `externalKey` | Stable, trimmed, case-sensitive Product grouping code from Excel; unique per Business, including inactive Products                          |
+| Variant `id`  | Backend UUID; used in Variant/inventory routes                                                                                              |
+| `sku`         | Optional identifier for a simple Variant; required for every configurable Excel Variant; reserved per Business, including inactive Variants |
 
 Existing Product matching is **Business + externalKey**. Existing Variant matching
 is **Product + exact normalized optionValues combination**; it is not SKU-only
@@ -72,15 +72,15 @@ authoritative. Preserve leading zeroes in identifiers by using Excel text cells.
 
 ### Fields the mapper actually supports
 
-| Mapping type/target | Meaning and requirements |
-| --- | --- |
-| STANDARD `externalKey` | Required mapped column and nonblank value on every nonempty row |
-| STANDARD `name` | Required mapped column and nonblank value on every nonempty row, including updates |
-| STANDARD `description`, `category`, `basePrice` | Optional Product metadata |
-| ATTRIBUTE `<safe_key>` | Optional Product attributes; same metadata must agree across rows of a Product |
-| STANDARD `sku`, `unitPrice`, `stockQuantity` | Variant SKU, override price, absolute stock quantity |
-| VARIANT_ATTRIBUTE `<exact option name>` | Actual selected Variant option, e.g. Color, Size, Binding; requires a nonblank selection and SKU on every configurable row |
-| IGNORE / UNMAPPED | No imported value; `target` must be explicit JSON null |
+| Mapping type/target                             | Meaning and requirements                                                                                                   |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| STANDARD `externalKey`                          | Required mapped column and nonblank value on every nonempty row                                                            |
+| STANDARD `name`                                 | Required mapped column and nonblank value on every nonempty row, including updates                                         |
+| STANDARD `description`, `category`, `basePrice` | Optional Product metadata                                                                                                  |
+| ATTRIBUTE `<safe_key>`                          | Optional Product attributes; same metadata must agree across rows of a Product                                             |
+| STANDARD `sku`, `unitPrice`, `stockQuantity`    | Variant SKU, override price, absolute stock quantity                                                                       |
+| VARIANT_ATTRIBUTE `<exact option name>`         | Actual selected Variant option, e.g. Color, Size, Binding; requires a nonblank selection and SKU on every configurable row |
+| IGNORE / UNMAPPED                               | No imported value; `target` must be explicit JSON null                                                                     |
 
 The complete STANDARD target list is `sku`, `unitPrice`, `name`, `externalKey`,
 `description`, `category`, `basePrice`, `stockQuantity`. Do not map `categoryId`,
@@ -99,13 +99,13 @@ current Excel validator; description to 5000. Only externalKey uses the shared
 
 ### Option shapes
 
-| Product | Excel VARIANT_ATTRIBUTE mappings | Selected row / accumulated Product options |
-| --- | --- | --- |
-| No options | None | `{}` selection, one default Variant; SKU optional |
-| Color only | `Color` | `{"Color":"Black"}` / `{"Color":["Black","White"]}` |
-| Size only | `Size` | `{"Size":"M"}` / `{"Size":["M","L"]}` |
-| Color + Size | `Color`, `Size` | `{"Color":"Black","Size":"M"}` |
-| Custom options | e.g. `Binding`, `Edition` | Exact configured keys, same rules |
+| Product        | Excel VARIANT_ATTRIBUTE mappings | Selected row / accumulated Product options          |
+| -------------- | -------------------------------- | --------------------------------------------------- |
+| No options     | None                             | `{}` selection, one default Variant; SKU optional   |
+| Color only     | `Color`                          | `{"Color":"Black"}` / `{"Color":["Black","White"]}` |
+| Size only      | `Size`                           | `{"Size":"M"}` / `{"Size":["M","L"]}`               |
+| Color + Size   | `Color`, `Size`                  | `{"Color":"Black","Size":"M"}`                      |
+| Custom options | e.g. `Binding`, `Edition`        | Exact configured keys, same rules                   |
 
 Names/values are trimmed and case-sensitive. `Color` and `color` are different
 keys. For an existing manual Product, the mapping targets must match its option
@@ -132,10 +132,10 @@ import `70000000-0000-4000-8000-000000000001`, `B` Business
 
 Choose `shirts.xlsx`, worksheet `Products`:
 
-| Excel row | Product Code | Name | SKU | Price | Quantity | Color | Size | Category |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2 | TEE-001 | Cotton T-shirt | TEE-B-M | 200 | 5 | Black | M | Clothes |
-| 3 | TEE-001 | Cotton T-shirt | TEE-B-L | 200 | 3 | Black | L | Clothes |
+| Excel row | Product Code | Name           | SKU     | Price | Quantity | Color | Size | Category |
+| --------- | ------------ | -------------- | ------- | ----- | -------- | ----- | ---- | -------- |
+| 2         | TEE-001      | Cotton T-shirt | TEE-B-M | 200   | 5        | Black | M    | Clothes  |
+| 3         | TEE-001      | Cotton T-shirt | TEE-B-L | 200   | 3        | Black | L    | Clothes  |
 
 ### 3.1 POST analyze
 
@@ -159,10 +159,43 @@ checked. `.xls`, CSV and renamed non-Excel files are not accepted.
   "sheetNames": ["Products", "Notes"],
   "selectedSheetName": "Products",
   "headerRow": 1,
-  "headers": ["Product Code", "Name", "SKU", "Price", "Quantity", "Color", "Size", "Category"],
+  "headers": [
+    "Product Code",
+    "Name",
+    "SKU",
+    "Price",
+    "Quantity",
+    "Color",
+    "Size",
+    "Category"
+  ],
   "sampleRows": [
-    { "rowNumber": 2, "values": ["TEE-001", "Cotton T-shirt", "TEE-B-M", 200, 5, "Black", "M", "Clothes"] },
-    { "rowNumber": 3, "values": ["TEE-001", "Cotton T-shirt", "TEE-B-L", 200, 3, "Black", "L", "Clothes"] }
+    {
+      "rowNumber": 2,
+      "values": [
+        "TEE-001",
+        "Cotton T-shirt",
+        "TEE-B-M",
+        200,
+        5,
+        "Black",
+        "M",
+        "Clothes"
+      ]
+    },
+    {
+      "rowNumber": 3,
+      "values": [
+        "TEE-001",
+        "Cotton T-shirt",
+        "TEE-B-L",
+        200,
+        3,
+        "Black",
+        "L",
+        "Clothes"
+      ]
+    }
   ],
   "totalRows": 2
 }
@@ -191,14 +224,70 @@ the file/worksheet; these are HTTP failures, not row-validation results.
   "importId": "70000000-0000-4000-8000-000000000001",
   "status": "MAPPING_REQUIRED",
   "columns": [
-    { "sourceColumn": "Product Code", "sourceColumnIndex": 1, "samples": ["TEE-001"], "suggestedType": "STANDARD", "suggestedTarget": "externalKey", "displayLabel": "Product Code (groups variants)" },
-    { "sourceColumn": "Name", "sourceColumnIndex": 2, "samples": ["Cotton T-shirt"], "suggestedType": "STANDARD", "suggestedTarget": "name", "displayLabel": "Product Name" },
-    { "sourceColumn": "SKU", "sourceColumnIndex": 3, "samples": ["TEE-B-M", "TEE-B-L"], "suggestedType": "STANDARD", "suggestedTarget": "sku", "displayLabel": "Variant SKU" },
-    { "sourceColumn": "Price", "sourceColumnIndex": 4, "samples": [200], "suggestedType": "STANDARD", "suggestedTarget": "basePrice", "displayLabel": "Price" },
-    { "sourceColumn": "Quantity", "sourceColumnIndex": 5, "samples": [5, 3], "suggestedType": "STANDARD", "suggestedTarget": "stockQuantity", "displayLabel": "Available Quantity" },
-    { "sourceColumn": "Color", "sourceColumnIndex": 6, "samples": ["Black"], "suggestedType": "UNMAPPED", "suggestedTarget": null, "displayLabel": null },
-    { "sourceColumn": "Size", "sourceColumnIndex": 7, "samples": ["M", "L"], "suggestedType": "UNMAPPED", "suggestedTarget": null, "displayLabel": null },
-    { "sourceColumn": "Category", "sourceColumnIndex": 8, "samples": ["Clothes"], "suggestedType": "STANDARD", "suggestedTarget": "category", "displayLabel": "Category" }
+    {
+      "sourceColumn": "Product Code",
+      "sourceColumnIndex": 1,
+      "samples": ["TEE-001"],
+      "suggestedType": "STANDARD",
+      "suggestedTarget": "externalKey",
+      "displayLabel": "Product Code (groups variants)"
+    },
+    {
+      "sourceColumn": "Name",
+      "sourceColumnIndex": 2,
+      "samples": ["Cotton T-shirt"],
+      "suggestedType": "STANDARD",
+      "suggestedTarget": "name",
+      "displayLabel": "Product Name"
+    },
+    {
+      "sourceColumn": "SKU",
+      "sourceColumnIndex": 3,
+      "samples": ["TEE-B-M", "TEE-B-L"],
+      "suggestedType": "STANDARD",
+      "suggestedTarget": "sku",
+      "displayLabel": "Variant SKU"
+    },
+    {
+      "sourceColumn": "Price",
+      "sourceColumnIndex": 4,
+      "samples": [200],
+      "suggestedType": "STANDARD",
+      "suggestedTarget": "basePrice",
+      "displayLabel": "Price"
+    },
+    {
+      "sourceColumn": "Quantity",
+      "sourceColumnIndex": 5,
+      "samples": [5, 3],
+      "suggestedType": "STANDARD",
+      "suggestedTarget": "stockQuantity",
+      "displayLabel": "Available Quantity"
+    },
+    {
+      "sourceColumn": "Color",
+      "sourceColumnIndex": 6,
+      "samples": ["Black"],
+      "suggestedType": "UNMAPPED",
+      "suggestedTarget": null,
+      "displayLabel": null
+    },
+    {
+      "sourceColumn": "Size",
+      "sourceColumnIndex": 7,
+      "samples": ["M", "L"],
+      "suggestedType": "UNMAPPED",
+      "suggestedTarget": null,
+      "displayLabel": null
+    },
+    {
+      "sourceColumn": "Category",
+      "sourceColumnIndex": 8,
+      "samples": ["Clothes"],
+      "suggestedType": "STANDARD",
+      "suggestedTarget": "category",
+      "displayLabel": "Category"
+    }
   ],
   "mapping": null
 }
@@ -217,14 +306,54 @@ three distinct populated samples drawn from analysis samples. After confirmation
 ```json
 {
   "mapping": [
-    { "sourceColumn": "Product Code", "sourceColumnIndex": 1, "type": "STANDARD", "target": "externalKey" },
-    { "sourceColumn": "Name", "sourceColumnIndex": 2, "type": "STANDARD", "target": "name" },
-    { "sourceColumn": "SKU", "sourceColumnIndex": 3, "type": "STANDARD", "target": "sku" },
-    { "sourceColumn": "Price", "sourceColumnIndex": 4, "type": "STANDARD", "target": "basePrice" },
-    { "sourceColumn": "Quantity", "sourceColumnIndex": 5, "type": "STANDARD", "target": "stockQuantity" },
-    { "sourceColumn": "Color", "sourceColumnIndex": 6, "type": "VARIANT_ATTRIBUTE", "target": "Color" },
-    { "sourceColumn": "Size", "sourceColumnIndex": 7, "type": "VARIANT_ATTRIBUTE", "target": "Size" },
-    { "sourceColumn": "Category", "sourceColumnIndex": 8, "type": "STANDARD", "target": "category" }
+    {
+      "sourceColumn": "Product Code",
+      "sourceColumnIndex": 1,
+      "type": "STANDARD",
+      "target": "externalKey"
+    },
+    {
+      "sourceColumn": "Name",
+      "sourceColumnIndex": 2,
+      "type": "STANDARD",
+      "target": "name"
+    },
+    {
+      "sourceColumn": "SKU",
+      "sourceColumnIndex": 3,
+      "type": "STANDARD",
+      "target": "sku"
+    },
+    {
+      "sourceColumn": "Price",
+      "sourceColumnIndex": 4,
+      "type": "STANDARD",
+      "target": "basePrice"
+    },
+    {
+      "sourceColumn": "Quantity",
+      "sourceColumnIndex": 5,
+      "type": "STANDARD",
+      "target": "stockQuantity"
+    },
+    {
+      "sourceColumn": "Color",
+      "sourceColumnIndex": 6,
+      "type": "VARIANT_ATTRIBUTE",
+      "target": "Color"
+    },
+    {
+      "sourceColumn": "Size",
+      "sourceColumnIndex": 7,
+      "type": "VARIANT_ATTRIBUTE",
+      "target": "Size"
+    },
+    {
+      "sourceColumn": "Category",
+      "sourceColumnIndex": 8,
+      "type": "STANDARD",
+      "target": "category"
+    }
   ]
 }
 ```
@@ -236,14 +365,54 @@ three distinct populated samples drawn from analysis samples. After confirmation
   "importId": "70000000-0000-4000-8000-000000000001",
   "status": "MAPPING_REQUIRED",
   "mapping": [
-    { "sourceColumn": "Product Code", "sourceColumnIndex": 1, "type": "STANDARD", "target": "externalKey" },
-    { "sourceColumn": "Name", "sourceColumnIndex": 2, "type": "STANDARD", "target": "name" },
-    { "sourceColumn": "SKU", "sourceColumnIndex": 3, "type": "STANDARD", "target": "sku" },
-    { "sourceColumn": "Price", "sourceColumnIndex": 4, "type": "STANDARD", "target": "basePrice" },
-    { "sourceColumn": "Quantity", "sourceColumnIndex": 5, "type": "STANDARD", "target": "stockQuantity" },
-    { "sourceColumn": "Color", "sourceColumnIndex": 6, "type": "VARIANT_ATTRIBUTE", "target": "Color" },
-    { "sourceColumn": "Size", "sourceColumnIndex": 7, "type": "VARIANT_ATTRIBUTE", "target": "Size" },
-    { "sourceColumn": "Category", "sourceColumnIndex": 8, "type": "STANDARD", "target": "category" }
+    {
+      "sourceColumn": "Product Code",
+      "sourceColumnIndex": 1,
+      "type": "STANDARD",
+      "target": "externalKey"
+    },
+    {
+      "sourceColumn": "Name",
+      "sourceColumnIndex": 2,
+      "type": "STANDARD",
+      "target": "name"
+    },
+    {
+      "sourceColumn": "SKU",
+      "sourceColumnIndex": 3,
+      "type": "STANDARD",
+      "target": "sku"
+    },
+    {
+      "sourceColumn": "Price",
+      "sourceColumnIndex": 4,
+      "type": "STANDARD",
+      "target": "basePrice"
+    },
+    {
+      "sourceColumn": "Quantity",
+      "sourceColumnIndex": 5,
+      "type": "STANDARD",
+      "target": "stockQuantity"
+    },
+    {
+      "sourceColumn": "Color",
+      "sourceColumnIndex": 6,
+      "type": "VARIANT_ATTRIBUTE",
+      "target": "Color"
+    },
+    {
+      "sourceColumn": "Size",
+      "sourceColumnIndex": 7,
+      "type": "VARIANT_ATTRIBUTE",
+      "target": "Size"
+    },
+    {
+      "sourceColumn": "Category",
+      "sourceColumnIndex": 8,
+      "type": "STANDARD",
+      "target": "category"
+    }
   ]
 }
 ```
@@ -275,7 +444,12 @@ validation synchronously and returns **201**, not a queued worker ID:
 {
   "importId": "70000000-0000-4000-8000-000000000001",
   "status": "READY",
-  "summary": { "totalRows": 2, "validRows": 2, "invalidRows": 0, "skippedRows": 0 }
+  "summary": {
+    "totalRows": 2,
+    "validRows": 2,
+    "invalidRows": 0,
+    "skippedRows": 0
+  }
 }
 ```
 
@@ -298,10 +472,33 @@ after validation, create a new analyze job; there is no reset-to-mapping endpoin
 {
   "importId": "70000000-0000-4000-8000-000000000001",
   "status": "READY",
-  "summary": { "totalRows": 2, "validRows": 2, "invalidRows": 0, "skippedRows": 0 },
-  "pagination": { "limit": 1, "offset": 0, "totalCount": 2, "hasMore": true, "nextOffset": 1 },
+  "summary": {
+    "totalRows": 2,
+    "validRows": 2,
+    "invalidRows": 0,
+    "skippedRows": 0
+  },
+  "pagination": {
+    "limit": 1,
+    "offset": 0,
+    "totalCount": 2,
+    "hasMore": true,
+    "nextOffset": 1
+  },
   "validRows": [
-    { "rowNumber": 2, "data": { "externalKey": "TEE-001", "name": "Cotton T-shirt", "sku": "TEE-B-M", "basePrice": "200.00", "stockQuantity": 5, "variantAttributes": { "Color": "Black", "Size": "M" }, "category": "Clothes", "options": { "Color": ["Black"], "Size": ["M", "L"] } } }
+    {
+      "rowNumber": 2,
+      "data": {
+        "externalKey": "TEE-001",
+        "name": "Cotton T-shirt",
+        "sku": "TEE-B-M",
+        "basePrice": "200.00",
+        "stockQuantity": 5,
+        "variantAttributes": { "Color": "Black", "Size": "M" },
+        "category": "Clothes",
+        "options": { "Color": ["Black"], "Size": ["M", "L"] }
+      }
+    }
   ],
   "invalidRows": []
 }
@@ -324,7 +521,11 @@ can return 201 READY with validRows=0/invalidRows=1. Its results contain:
 {
   "rowNumber": 2,
   "errors": [
-    { "field": "name", "code": "REQUIRED", "message": "name is required; product code is the stable product identity" }
+    {
+      "field": "name",
+      "code": "REQUIRED",
+      "message": "name is required; product code is the stable product identity"
+    }
   ]
 }
 ```
@@ -355,11 +556,55 @@ as results, now across inserts + updates + unchanged + invalidRows.
 {
   "importId": "70000000-0000-4000-8000-000000000001",
   "status": "READY",
-  "summary": { "totalRows": 2, "validRows": 2, "invalidRows": 0, "skippedRows": 0, "willInsert": 2, "willUpdate": 0, "unchanged": 0 },
-  "pagination": { "limit": 50, "offset": 0, "totalCount": 2, "hasMore": false, "nextOffset": null },
+  "summary": {
+    "totalRows": 2,
+    "validRows": 2,
+    "invalidRows": 0,
+    "skippedRows": 0,
+    "willInsert": 2,
+    "willUpdate": 0,
+    "unchanged": 0
+  },
+  "pagination": {
+    "limit": 50,
+    "offset": 0,
+    "totalCount": 2,
+    "hasMore": false,
+    "nextOffset": null
+  },
   "inserts": [
-    { "rowNumber": 2, "externalKey": "TEE-001", "variantAttributes": { "Color": "Black", "Size": "M" }, "action": "INSERT", "data": { "externalKey": "TEE-001", "name": "Cotton T-shirt", "sku": "TEE-B-M", "basePrice": "200.00", "stockQuantity": 5, "variantAttributes": { "Color": "Black", "Size": "M" }, "category": "Clothes", "options": { "Color": ["Black"], "Size": ["M", "L"] } } },
-    { "rowNumber": 3, "externalKey": "TEE-001", "variantAttributes": { "Color": "Black", "Size": "L" }, "action": "INSERT", "data": { "externalKey": "TEE-001", "name": "Cotton T-shirt", "sku": "TEE-B-L", "basePrice": "200.00", "stockQuantity": 3, "variantAttributes": { "Color": "Black", "Size": "L" }, "category": "Clothes", "options": { "Color": ["Black"], "Size": ["M", "L"] } } }
+    {
+      "rowNumber": 2,
+      "externalKey": "TEE-001",
+      "variantAttributes": { "Color": "Black", "Size": "M" },
+      "action": "INSERT",
+      "data": {
+        "externalKey": "TEE-001",
+        "name": "Cotton T-shirt",
+        "sku": "TEE-B-M",
+        "basePrice": "200.00",
+        "stockQuantity": 5,
+        "variantAttributes": { "Color": "Black", "Size": "M" },
+        "category": "Clothes",
+        "options": { "Color": ["Black"], "Size": ["M", "L"] }
+      }
+    },
+    {
+      "rowNumber": 3,
+      "externalKey": "TEE-001",
+      "variantAttributes": { "Color": "Black", "Size": "L" },
+      "action": "INSERT",
+      "data": {
+        "externalKey": "TEE-001",
+        "name": "Cotton T-shirt",
+        "sku": "TEE-B-L",
+        "basePrice": "200.00",
+        "stockQuantity": 3,
+        "variantAttributes": { "Color": "Black", "Size": "L" },
+        "category": "Clothes",
+        "options": { "Color": ["Black"], "Size": ["M", "L"] }
+      }
+    }
   ],
   "updates": [],
   "unchanged": [],
@@ -390,10 +635,31 @@ READY, atomically claims IMPORTING and completes synchronously. **200** example:
 {
   "importId": "70000000-0000-4000-8000-000000000001",
   "status": "COMPLETED",
-  "summary": { "totalRows": 2, "validRows": 2, "invalidRows": 0, "skippedRows": 0, "insertedCount": 2, "updatedCount": 0, "failedCount": 0, "unchangedCount": 0 },
+  "summary": {
+    "totalRows": 2,
+    "validRows": 2,
+    "invalidRows": 0,
+    "skippedRows": 0,
+    "insertedCount": 2,
+    "updatedCount": 0,
+    "failedCount": 0,
+    "unchangedCount": 0
+  },
   "inserted": [
-    { "rowNumber": 2, "externalKey": "TEE-001", "productId": "20000000-0000-4000-8000-000000000001", "catalogItemId": "20000000-0000-4000-8000-000000000001", "variantId": "30000000-0000-4000-8000-000000000001" },
-    { "rowNumber": 3, "externalKey": "TEE-001", "productId": "20000000-0000-4000-8000-000000000001", "catalogItemId": "20000000-0000-4000-8000-000000000001", "variantId": "40000000-0000-4000-8000-000000000001" }
+    {
+      "rowNumber": 2,
+      "externalKey": "TEE-001",
+      "productId": "20000000-0000-4000-8000-000000000001",
+      "catalogItemId": "20000000-0000-4000-8000-000000000001",
+      "variantId": "30000000-0000-4000-8000-000000000001"
+    },
+    {
+      "rowNumber": 3,
+      "externalKey": "TEE-001",
+      "productId": "20000000-0000-4000-8000-000000000001",
+      "catalogItemId": "20000000-0000-4000-8000-000000000001",
+      "variantId": "40000000-0000-4000-8000-000000000001"
+    }
   ],
   "updated": [],
   "unchanged": [],
@@ -459,7 +725,13 @@ createdAt DESC, id DESC. 200 example:
 
 ```json
 {
-  "pagination": { "limit": 20, "offset": 0, "totalCount": 1, "hasMore": false, "nextOffset": null },
+  "pagination": {
+    "limit": 20,
+    "offset": 0,
+    "totalCount": 1,
+    "hasMore": false,
+    "nextOffset": null
+  },
   "items": [
     {
       "id": "70000000-0000-4000-8000-000000000001",
@@ -502,12 +774,12 @@ catalogItemId. Product root and ProductImage metadata do not gain that alias.
 All reads below use owner headers, no body, 200 success. Path UUIDs must stay
 within the selected Business; common 401/404 apply.
 
-| Read | Path and input | Response |
-| --- | --- | --- |
-| Product detail | `GET /businesses/:businessId/products/:productId` | Full Product object below |
-| Product list | `GET /businesses/:businessId/products?limit=20&offset=0` | `{ "pagination": ..., "items": [Product] }` |
-| All variants, paginated | `GET /businesses/:businessId/products/:productId/variants?limit=20&offset=0` | `{ "pagination": ..., "items": [Variant] }` |
-| One variant | `GET /businesses/:businessId/products/:productId/variants/:variantId` | Full Variant object matching an embedded entry below |
+| Read                    | Path and input                                                               | Response                                             |
+| ----------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Product detail          | `GET /businesses/:businessId/products/:productId`                            | Full Product object below                            |
+| Product list            | `GET /businesses/:businessId/products?limit=20&offset=0`                     | `{ "pagination": ..., "items": [Product] }`          |
+| All variants, paginated | `GET /businesses/:businessId/products/:productId/variants?limit=20&offset=0` | `{ "pagination": ..., "items": [Variant] }`          |
+| One variant             | `GET /businesses/:businessId/products/:productId/variants/:variantId`        | Full Variant object matching an embedded entry below |
 
 Product/list/variant-list pages default to 20, support limit 1–100 and offset
 0–Number.MAX_SAFE_INTEGER, and order createdAt DESC/id DESC. In the example with
@@ -536,10 +808,44 @@ Product detail example (illustrative timestamps; newer Variant first):
   "updatedAt": "2026-11-04T12:00:04.000Z",
   "isSellable": true,
   "variants": [
-    { "id": "40000000-0000-4000-8000-000000000001", "businessId": "10000000-0000-4000-8000-000000000001", "productId": "20000000-0000-4000-8000-000000000001", "catalogItemId": "20000000-0000-4000-8000-000000000001", "sku": "TEE-B-L", "optionValues": { "Color": "Black", "Size": "L" }, "unitPrice": null, "effectivePrice": "200.00", "trackInventory": true, "stockQuantity": 3, "isActive": true, "createdAt": "2026-11-04T12:00:04.002Z", "updatedAt": "2026-11-04T12:00:04.003Z" },
-    { "id": "30000000-0000-4000-8000-000000000001", "businessId": "10000000-0000-4000-8000-000000000001", "productId": "20000000-0000-4000-8000-000000000001", "catalogItemId": "20000000-0000-4000-8000-000000000001", "sku": "TEE-B-M", "optionValues": { "Color": "Black", "Size": "M" }, "unitPrice": null, "effectivePrice": "200.00", "trackInventory": true, "stockQuantity": 5, "isActive": true, "createdAt": "2026-11-04T12:00:04.000Z", "updatedAt": "2026-11-04T12:00:04.001Z" }
+    {
+      "id": "40000000-0000-4000-8000-000000000001",
+      "businessId": "10000000-0000-4000-8000-000000000001",
+      "productId": "20000000-0000-4000-8000-000000000001",
+      "catalogItemId": "20000000-0000-4000-8000-000000000001",
+      "sku": "TEE-B-L",
+      "optionValues": { "Color": "Black", "Size": "L" },
+      "unitPrice": null,
+      "effectivePrice": "200.00",
+      "trackInventory": true,
+      "stockQuantity": 3,
+      "isActive": true,
+      "createdAt": "2026-11-04T12:00:04.002Z",
+      "updatedAt": "2026-11-04T12:00:04.003Z"
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "businessId": "10000000-0000-4000-8000-000000000001",
+      "productId": "20000000-0000-4000-8000-000000000001",
+      "catalogItemId": "20000000-0000-4000-8000-000000000001",
+      "sku": "TEE-B-M",
+      "optionValues": { "Color": "Black", "Size": "M" },
+      "unitPrice": null,
+      "effectivePrice": "200.00",
+      "trackInventory": true,
+      "stockQuantity": 5,
+      "isActive": true,
+      "createdAt": "2026-11-04T12:00:04.000Z",
+      "updatedAt": "2026-11-04T12:00:04.001Z"
+    }
   ],
-  "variantsPagination": { "limit": 20, "offset": 0, "totalCount": 2, "hasMore": false, "nextOffset": null }
+  "variantsPagination": {
+    "limit": 20,
+    "offset": 0,
+    "totalCount": 2,
+    "hasMore": false,
+    "nextOffset": null
+  }
 }
 ```
 
@@ -558,20 +864,20 @@ with a priced active Variant, not that every Variant is in stock.
 
 ## 8. Re-import and manual edits
 
-| Situation | Actual result |
-| --- | --- |
-| Same Business + externalKey | Update that Product; a matching key in another Business is independent |
-| Same exact option combination | Update/reuse that Variant ID; SKU is not the lookup identity |
-| New combination under same option names | Create a Variant and extend allowed values; no duplicate Product |
-| Missing existing Product/Variant/color from workbook | Retain it; import does not delete absent data |
-| New/renamed option name or simple ↔ configurable conversion | Reject OPTIONS_CONFLICT; use reviewed Product CRUD instead |
-| Blank/unmapped quantity on existing Variant | Preserve stock/tracking; new Variant stays untracked with null stock |
-| Explicit quantity, including 0 | Set absolute tracked quantity, never add a delta; write existing inventory audit rules |
-| Nonblank basePrice/unitPrice | Update supplied price; Variant override takes precedence |
-| Blank/unmapped prices, description or category | Preserve existing value; not a clear-to-null operation |
-| Nonblank name/metadata in Excel | Can overwrite manual edits; inspect preview |
-| Product attributes | Merge nonnull mapped values; preserve unrelated/manual keys; conflicting/oversized merged data rejects the group |
-| Inactive matching Product/Variant or reserved SKU elsewhere | Reject PRODUCT_INACTIVE / VARIANT_INACTIVE / SKU_RESERVED; do not silently reactivate/reassign |
+| Situation                                                   | Actual result                                                                                                    |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Same Business + externalKey                                 | Update that Product; a matching key in another Business is independent                                           |
+| Same exact option combination                               | Update/reuse that Variant ID; SKU is not the lookup identity                                                     |
+| New combination under same option names                     | Create a Variant and extend allowed values; no duplicate Product                                                 |
+| Missing existing Product/Variant/color from workbook        | Retain it; import does not delete absent data                                                                    |
+| New/renamed option name or simple ↔ configurable conversion | Reject OPTIONS_CONFLICT; use reviewed Product CRUD instead                                                       |
+| Blank/unmapped quantity on existing Variant                 | Preserve stock/tracking; new Variant stays untracked with null stock                                             |
+| Explicit quantity, including 0                              | Set absolute tracked quantity, never add a delta; write existing inventory audit rules                           |
+| Nonblank basePrice/unitPrice                                | Update supplied price; Variant override takes precedence                                                         |
+| Blank/unmapped prices, description or category              | Preserve existing value; not a clear-to-null operation                                                           |
+| Nonblank name/metadata in Excel                             | Can overwrite manual edits; inspect preview                                                                      |
+| Product attributes                                          | Merge nonnull mapped values; preserve unrelated/manual keys; conflicting/oversized merged data rejects the group |
+| Inactive matching Product/Variant or reserved SKU elsewhere | Reject PRODUCT_INACTIVE / VARIANT_INACTIVE / SKU_RESERVED; do not silently reactivate/reassign                   |
 
 Repeat execution of the **same job** is rejected. A **new job** with the same
 file/identities can produce UNCHANGED rows without duplicates; database state and
@@ -587,18 +893,24 @@ price/SKU/category just by leaving a cell blank.
 
 Actual owner-scoped routes exist at `/businesses/:businessId/categories`:
 
-| Method | Path suffix | Request | Success |
-| --- | --- | --- | --- |
-| POST | none | JSON `{"name":"Clothes"}` | 201 Category |
-| GET | none | Query limit/offset, default 20/0 | 200 pagination + items |
-| GET | `/:categoryId` | No body | 200 Category |
-| PATCH | `/:categoryId` | JSON `{"name":"Clothing"}` | 200 renamed Category |
-| DELETE | `/:categoryId` | No body | 204, no response body |
+| Method | Path suffix    | Request                          | Success                |
+| ------ | -------------- | -------------------------------- | ---------------------- |
+| POST   | none           | JSON `{"name":"Clothes"}`        | 201 Category           |
+| GET    | none           | Query limit/offset, default 20/0 | 200 pagination + items |
+| GET    | `/:categoryId` | No body                          | 200 Category           |
+| PATCH  | `/:categoryId` | JSON `{"name":"Clothing"}`       | 200 renamed Category   |
+| DELETE | `/:categoryId` | No body                          | 204, no response body  |
 
 All use the same owner/JSON headers and UUID validation. A Category object is:
 
 ```json
-{ "id":"50000000-0000-4000-8000-000000000001", "businessId":"10000000-0000-4000-8000-000000000001", "name":"Clothes", "createdAt":"2026-11-04T12:00:04.000Z", "updatedAt":"2026-11-04T12:00:04.000Z" }
+{
+  "id": "50000000-0000-4000-8000-000000000001",
+  "businessId": "10000000-0000-4000-8000-000000000001",
+  "name": "Clothes",
+  "createdAt": "2026-11-04T12:00:04.000Z",
+  "updatedAt": "2026-11-04T12:00:04.000Z"
+}
 ```
 
 The list uses the same pagination/items envelope as Products, with Category
@@ -656,46 +968,46 @@ HTTP-level errors use this existing envelope (message may also be a string array
 Keep stable codes in logs/UI models; translate by code, never parse English
 messages. Suggested Arabic labels below are Android text, not Backend messages.
 
-| HTTP / codes | Suggested Arabic/action |
-| --- | --- |
-| 401 UNAUTHORIZED; auth-session failures | «انتهت الجلسة، سجّلي الدخول مجددًا»; use existing refresh handling |
-| 404 NOT_FOUND, IMPORT_JOB_NOT_FOUND, BUSINESS_NOT_FOUND, PRODUCT_NOT_FOUND, VARIANT_NOT_FOUND | «العنصر غير موجود أو غير متاح لهذا النشاط»; check selected Business/IDs |
-| 400 EXCEL_FILE_REQUIRED | «اختاري ملف Excel أولًا» |
-| 413 EXCEL_FILE_TOO_LARGE | «حجم الملف أكبر من 10 ميبيبايت» |
-| 400 EXCEL_FILE_UNSUPPORTED | «الصيغة المطلوبة هي ‎.xlsx» |
-| 400 EXCEL_FILE_INVALID, EXCEL_FILE_UNREADABLE | «ملف Excel غير صالح أو غير قابل للقراءة» |
-| 400 EXCEL_SHEET_NOT_FOUND, EXCEL_HEADER_NOT_FOUND | «راجعي ورقة العمل وصف العناوين»; select/reupload |
-| 400 VALIDATION_ERROR | «راجعي البيانات أو الحقول المطلوبة»; includes missing externalKey mapping, DTO/query errors |
-| 400 MAPPING_SOURCE_INVALID, MAPPING_SOURCE_DUPLICATE | «راجعي الأعمدة المختارة؛ لا تكرري العمود» |
-| 400 MAPPING_STANDARD_TARGET_INVALID, MAPPING_STANDARD_TARGET_DUPLICATE | «حقل الاستيراد غير صالح أو مكرر» |
-| 400 MAPPING_ATTRIBUTE_TARGET_INVALID, MAPPING_ATTRIBUTE_TARGET_DUPLICATE | «اسم الخاصية غير صالح أو مكرر» |
-| 400 MAPPING_TARGET_MUST_BE_NULL, MAPPING_TYPE_INVALID, MAPPING_NAME_REQUIRED | «راجعي نوع الربط وحقل اسم المنتج» |
-| 409 IMPORT_NOT_AWAITING_MAPPING, IMPORT_MAPPING_CHANGED | «تغيّرت حالة الملف؛ حدّثي الحالة قبل تعديل الربط» |
-| 409 IMPORT_MAPPING_REQUIRED | «أكّدي ربط الأعمدة أولًا» |
-| 409 IMPORT_NOT_AWAITING_VALIDATION, IMPORT_VALIDATION_ALREADY_STARTED | «التحقق بدأ بالفعل أو حالة الملف تغيّرت»; refresh GET status |
-| 409 IMPORT_VALIDATION_RESULTS_UNAVAILABLE | «نتائج التحقق غير متاحة؛ قد تحتاجين إعادة رفع الملف» |
-| 409 IMPORT_WORKBOOK_UNAVAILABLE | «الملف المحفوظ غير متاح؛ أعيدي الرفع» |
-| 409 IMPORT_NOT_READY, IMPORT_EXECUTION_ALREADY_STARTED | «الاستيراد غير جاهز أو بدأ بالفعل»; never replay blindly |
+| HTTP / codes                                                                                              | Suggested Arabic/action                                                                            |
+| --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| 401 UNAUTHORIZED; auth-session failures                                                                   | «انتهت الجلسة، سجّلي الدخول مجددًا»; use existing refresh handling                                 |
+| 404 NOT_FOUND, IMPORT_JOB_NOT_FOUND, BUSINESS_NOT_FOUND, PRODUCT_NOT_FOUND, VARIANT_NOT_FOUND             | «العنصر غير موجود أو غير متاح لهذا النشاط»; check selected Business/IDs                            |
+| 400 EXCEL_FILE_REQUIRED                                                                                   | «اختاري ملف Excel أولًا»                                                                           |
+| 413 EXCEL_FILE_TOO_LARGE                                                                                  | «حجم الملف أكبر من 10 ميبيبايت»                                                                    |
+| 400 EXCEL_FILE_UNSUPPORTED                                                                                | «الصيغة المطلوبة هي ‎.xlsx»                                                                        |
+| 400 EXCEL_FILE_INVALID, EXCEL_FILE_UNREADABLE                                                             | «ملف Excel غير صالح أو غير قابل للقراءة»                                                           |
+| 400 EXCEL_SHEET_NOT_FOUND, EXCEL_HEADER_NOT_FOUND                                                         | «راجعي ورقة العمل وصف العناوين»; select/reupload                                                   |
+| 400 VALIDATION_ERROR                                                                                      | «راجعي البيانات أو الحقول المطلوبة»; includes missing externalKey mapping, DTO/query errors        |
+| 400 MAPPING_SOURCE_INVALID, MAPPING_SOURCE_DUPLICATE                                                      | «راجعي الأعمدة المختارة؛ لا تكرري العمود»                                                          |
+| 400 MAPPING_STANDARD_TARGET_INVALID, MAPPING_STANDARD_TARGET_DUPLICATE                                    | «حقل الاستيراد غير صالح أو مكرر»                                                                   |
+| 400 MAPPING_ATTRIBUTE_TARGET_INVALID, MAPPING_ATTRIBUTE_TARGET_DUPLICATE                                  | «اسم الخاصية غير صالح أو مكرر»                                                                     |
+| 400 MAPPING_TARGET_MUST_BE_NULL, MAPPING_TYPE_INVALID, MAPPING_NAME_REQUIRED                              | «راجعي نوع الربط وحقل اسم المنتج»                                                                  |
+| 409 IMPORT_NOT_AWAITING_MAPPING, IMPORT_MAPPING_CHANGED                                                   | «تغيّرت حالة الملف؛ حدّثي الحالة قبل تعديل الربط»                                                  |
+| 409 IMPORT_MAPPING_REQUIRED                                                                               | «أكّدي ربط الأعمدة أولًا»                                                                          |
+| 409 IMPORT_NOT_AWAITING_VALIDATION, IMPORT_VALIDATION_ALREADY_STARTED                                     | «التحقق بدأ بالفعل أو حالة الملف تغيّرت»; refresh GET status                                       |
+| 409 IMPORT_VALIDATION_RESULTS_UNAVAILABLE                                                                 | «نتائج التحقق غير متاحة؛ قد تحتاجين إعادة رفع الملف»                                               |
+| 409 IMPORT_WORKBOOK_UNAVAILABLE                                                                           | «الملف المحفوظ غير متاح؛ أعيدي الرفع»                                                              |
+| 409 IMPORT_NOT_READY, IMPORT_EXECUTION_ALREADY_STARTED                                                    | «الاستيراد غير جاهز أو بدأ بالفعل»; never replay blindly                                           |
 | 500 IMPORT_WORKBOOK_READ_FAILED, IMPORT_VALIDATION_FAILED, IMPORT_EXECUTION_FAILED, INTERNAL_SERVER_ERROR | «تعذّر إكمال العملية؛ حدّثي الحالة قبل المحاولة مجددًا»; earlier execute groups may have committed |
 
 These are **row codes inside successful results**, not their own HTTP statuses:
 
-| Row code | Suggested Arabic/action |
-| --- | --- |
-| REQUIRED | «حقل مطلوب غير موجود»; check field=name/externalKey/sku |
-| TEXT_TOO_LONG | «النص أطول من الحد المسموح» |
-| INVALID_DECIMAL, INVALID_INTEGER | «راجعي تنسيق السعر أو الكمية» |
-| REQUIRED_OPTION, INVALID_OPTIONS | «اختاري قيمة صحيحة لكل خاصية للمتغير» |
-| DUPLICATE_SKU | «كود المتغير مكرر داخل الملف» |
-| DUPLICATE_COMBINATION | «نفس مجموعة خيارات المتغير مكررة» |
-| CONFLICTING_PRODUCT_ROWS | «بيانات المنتج مختلفة بين صفوف نفس الكود» |
-| PRODUCT_GROUP_INVALID | «لن تُستورد هذه المجموعة بسبب خطأ في صف آخر» |
-| OPTIONS_CONFLICT | «خيارات الملف لا تتوافق مع خيارات المنتج الحالي» |
-| SKU_RESERVED | «كود المتغير مستخدم بالفعل في هذا النشاط» |
-| PRODUCT_INACTIVE, VARIANT_INACTIVE | «فعّلي المنتج أو المتغير أولًا» |
-| MERGED_ATTRIBUTES_INVALID | «الخصائص المدمجة تتجاوز الحدود المسموحة» |
-| EXECUTION_CONFLICT | «تغيّرت البيانات أو حدث تعارض؛ راجعي المجموعة» |
-| ROW_EXECUTION_FAILED | «تعذّر استيراد المجموعة ولم تُطبَّق صفوفها» |
+| Row code                           | Suggested Arabic/action                                 |
+| ---------------------------------- | ------------------------------------------------------- |
+| REQUIRED                           | «حقل مطلوب غير موجود»; check field=name/externalKey/sku |
+| TEXT_TOO_LONG                      | «النص أطول من الحد المسموح»                             |
+| INVALID_DECIMAL, INVALID_INTEGER   | «راجعي تنسيق السعر أو الكمية»                           |
+| REQUIRED_OPTION, INVALID_OPTIONS   | «اختاري قيمة صحيحة لكل خاصية للمتغير»                   |
+| DUPLICATE_SKU                      | «كود المتغير مكرر داخل الملف»                           |
+| DUPLICATE_COMBINATION              | «نفس مجموعة خيارات المتغير مكررة»                       |
+| CONFLICTING_PRODUCT_ROWS           | «بيانات المنتج مختلفة بين صفوف نفس الكود»               |
+| PRODUCT_GROUP_INVALID              | «لن تُستورد هذه المجموعة بسبب خطأ في صف آخر»            |
+| OPTIONS_CONFLICT                   | «خيارات الملف لا تتوافق مع خيارات المنتج الحالي»        |
+| SKU_RESERVED                       | «كود المتغير مستخدم بالفعل في هذا النشاط»               |
+| PRODUCT_INACTIVE, VARIANT_INACTIVE | «فعّلي المنتج أو المتغير أولًا»                         |
+| MERGED_ATTRIBUTES_INVALID          | «الخصائص المدمجة تتجاوز الحدود المسموحة»                |
+| EXECUTION_CONFLICT                 | «تغيّرت البيانات أو حدث تعارض؛ راجعي المجموعة»          |
+| ROW_EXECUTION_FAILED               | «تعذّر استيراد المجموعة ولم تُطبَّق صفوفها»             |
 
 Three UI outcomes must stay distinct: non-2xx is an HTTP operation failure;
 201 READY with invalidRows is completed validation with rejected groups; READY

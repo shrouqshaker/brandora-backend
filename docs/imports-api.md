@@ -221,7 +221,7 @@ snapshot as the upgraded contract.
 Local filesystem storage is unchanged and remains temporary on Railway without
 a durable volume/object store. Missing files/snapshots yield safe errors; this
 upgrade does not make import storage production-durable. See the separate
-[migration and scoped cleanup approval plan](variant-inventory-rollout.md).
+[migration and scoped cleanup approval plan](database.md#migration-strategy).
 
 ## Import audit clarifications
 

@@ -13,16 +13,16 @@ require current active OWNER membership in the path Business. Revoked/inactive
 membership, foreign Businesses and unowned legacy Businesses are hidden as 404
 NOT_FOUND. Knowing an ID does not claim ownership. One User may own multiple Businesses.
 
-| Method | Path | Success |
-| --- | --- | --- |
-| POST | `/businesses` | 201, profile |
-| GET | `/businesses?limit=20&offset=0` | 200, pagination/items |
-| GET | `/businesses/:businessId` | 200, profile |
-| PATCH | `/businesses/:businessId` | 200, updated profile |
-| GET | `/businesses/:businessId/settings` | 200, settings |
-| PATCH | `/businesses/:businessId/settings` | 200, updated settings |
-| GET | `/businesses/:businessId/working-hours` | 200, stored rows |
-| PUT | `/businesses/:businessId/working-hours` | 200, all seven rows |
+| Method | Path                                    | Success               |
+| ------ | --------------------------------------- | --------------------- |
+| POST   | `/businesses`                           | 201, profile          |
+| GET    | `/businesses?limit=20&offset=0`         | 200, pagination/items |
+| GET    | `/businesses/:businessId`               | 200, profile          |
+| PATCH  | `/businesses/:businessId`               | 200, updated profile  |
+| GET    | `/businesses/:businessId/settings`      | 200, settings         |
+| PATCH  | `/businesses/:businessId/settings`      | 200, updated settings |
+| GET    | `/businesses/:businessId/working-hours` | 200, stored rows      |
+| PUT    | `/businesses/:businessId/working-hours` | 200, all seven rows   |
 
 There is no Business DELETE, ownership-claim or membership-management endpoint here.
 
@@ -264,7 +264,7 @@ inventory migration. Fresh local installation of all ten migrations was verified
 separately. Do not infer that migrating an existing production database is safe
 from this Business-only document: the latest inventory migration removes legacy
 stock columns and refuses incompatible stock/history. Follow the separately
-approved [migration and recovery plan](variant-inventory-rollout.md).
+approved [migration and recovery plan](database.md#migration-strategy).
 
 After target verification and explicit approval where required, the deployment
 command is `npm run prisma:deploy`; Client generation and build use

@@ -3,8 +3,10 @@
 This is a separate development harness, not production conversation integration.
 The NestJS runner binds only to 127.0.0.1 and is never imported by AppModule or
 the production start command. FastAPI uses its existing canonical route and
-Groq/deterministic orchestration. Production still fails closed without its real
-conversation adapter. The two repositories and their Git histories stay separate.
+Groq/deterministic orchestration. AppModule now has the real ConversationsAiStore;
+it is separate from this runner's synthetic context store. Production activation
+still requires explicit configuration and acceptance. The two repositories and
+their Git histories stay separate. See [AI integration](ai-integration.md).
 
 ## Prepare an isolated fixture
 
@@ -19,7 +21,9 @@ node dev/ai-local-setup.cjs
 
 The setup creates one random `brandora_ai_local_<32-hex>` database and applies
 existing checked-in migrations only to that new database. No new migration,
-reset, cleanup SQL or conversation table is introduced. It creates disposable
+reset or cleanup SQL is introduced. The full committed schema includes conversation
+tables, but the runner's synthetic context does not validate the persistent chat
+workflow. It creates disposable
 OWNER membership and real Products/Variants/Inventory using existing services.
 No account login credentials are generated or shared with AI.
 
@@ -165,7 +169,7 @@ For already running local services, replay the collection with
 `node verification/replay-ai-postman.cjs`. For offline cross-contract validation,
 use `node verification/ai-cross-contract.cjs --ai-dir ../brandora-ai --python <python>`.
 These reusable tools do not load ignored AI snapshots. Results and test-layer
-distinctions are in [local verification evidence](local-verification.md).
+distinctions are in [local verification evidence](testing.md#historical-evidence).
 
 To prepare Malak's source-only archive, use
 `node dev/package-ai-handoff.cjs ../brandora-ai`. It packages only the explicit

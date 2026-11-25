@@ -1,5 +1,11 @@
 # Product naming and image database rollout
 
+> Retained historical report pending owner review. Environment identities,
+> deployed-code statements and migration counts below describe the dated
+> inspections, not verified current infrastructure. Use [database](database.md)
+> and [deployment](deployment.md) for maintained guidance. Do not execute this
+> report as a current release runbook.
+
 > 2026-11-05 update: all 13 migrations, including the gallery policy, passed
 > verification on the authorized isolated Neon test branch. Production was not
 > accessed or migrated. Earlier dated inspection records below remain historical.
@@ -47,11 +53,11 @@ checking/backfilling. First two have no row backfill; the third updates position
 None drops tables/columns, truncates or deletes data. Historical migrations retain
 their existing refusal/destructive steps and must not be replayed where applied.
 
-| Final table | Structure and ownership |
-| --- | --- |
-| Product | Existing metadata UUID/externalKey/options/prices; legacy optional colorOptionName; business-scoped keys |
-| ProductVariant | Existing productId/businessId composite ownership; options, prices and stock unchanged |
-| ProductImage | Composite Product ownership; unique publicId; nullable provider metadata, legacy option fields; status; position; timestamps |
+| Final table    | Structure and ownership                                                                                                      |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Product        | Existing metadata UUID/externalKey/options/prices; legacy optional colorOptionName; business-scoped keys                     |
+| ProductVariant | Existing productId/businessId composite ownership; options, prices and stock unchanged                                       |
+| ProductImage   | Composite Product ownership; unique publicId; nullable provider metadata, legacy option fields; status; position; timestamps |
 
 ACTIVE positions are unique per Product in 0..4, enforcing at most five active
 images and at most one Main at position 0. Backend compacts positions and derives
@@ -82,7 +88,7 @@ An authorized isolated Neon child branch was created:
 
 The reviewed statements and matching Prisma history entries were applied as one
 transaction through the Neon connector on that child only. Test-branch Prisma
-status and application checks are recorded in [verification results](product-domain-verification.md).
+status and application checks are recorded in [verification results](testing.md#historical-evidence).
 No production schema/data/history was changed. The branch is retained and has
 no automatic deletion; any later branch cleanup requires owner approval. The
 account rejected a custom suspend interval, so the test branch retains the

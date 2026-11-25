@@ -1,201 +1,198 @@
-# Backend ↔ AI local alignment
+# AI integration
 
-This is a local, opt-in integration, not a deployed service. The current standalone
-local `brandora-ai` checkout was reviewed at
-`malkzidan/brandora-ai@a65969f26799cb6ec1616b10c0d6ef240d55ef6c`. That checkout was
-clean at the baseline review; the local runner, canonical response bounds and
-availability-word regression changes are now uncommitted there. The standalone
-checkout is the source of truth for AI handoff; keep the repositories independent.
+This guide describes the Backend implementation. The independently maintained
+[AI contract](ai-contract.md) remains the negotiated cross-service reference;
+its implementation-alignment section records discrepancies requiring owner
+review. No external AI checkout, live model or deployed provider was verified
+by this documentation work.
 
-`src/ai/` is the NestJS adapter owned by `shrouqshaker/brandora-backend` and belongs
-in the Backend application release, together with its regression tests. The
-FastAPI service is maintained and deployed separately in `malkzidan/brandora-ai`.
-Backend packaging does not publish or deploy that service.
+## Implemented paths and activation
 
-For independent synthetic messages without persistence, use the separate
-[local-only runner and Postman guide](ai-local-testing.md). It reuses domain
-services against an isolated database and never changes the production provider.
+AiModule binds `AiConversationStore` to `ConversationsAiStore` from
+ConversationsModule through useExisting. The persistent adapter exists; claims
+that it is still an unavailable stub are obsolete. AI calls remain disabled
+unless AI_INTEGRATION_ENABLED is exactly `true` and credentials are valid.
+WhatsApp is independently disabled by default.
 
-## Implemented boundaries
+The normal customer path is:
 
-- `POST /businesses/:businessId/ai/respond`: existing owner JWT/session and active
-  OWNER membership are required. Body: `{conversationId, messageId}` only.
-- `AiConversationStore.current` loads the existing CUSTOMER/TEXT message and
-  attests business/customer/conversation/message ownership. Android cannot supply
-  message text, history, customer identity, a context token or service credentials.
-- NestJS sends exact UTF-8 JSON bytes to `POST /v2/ai/respond`:
+```mermaid
+flowchart LR
+    Webhook[Verified WhatsApp webhook] --> Store[Persist customer message]
+    Store --> Ack[Acknowledge Meta]
+    Store --> Claim[Claim automatic reply]
+    Claim --> AI[Signed call to separate AI]
+    AI --> Tools[Context-scoped Backend reads]
+    AI --> Reply[Persist one reply]
+    Reply --> Policy[Purchase alert or human handoff]
+    Policy --> Send[Claim outbound send]
+```
+
+The reply orchestration is launched without awaiting AI delivery in the webhook
+response. Database persistence errors prevent successful acknowledgment. A 200
+acknowledges stored input, not completed AI work or customer delivery.
+
+Two Backend endpoints are registered:
+
+| Endpoint                                  | Boundary                                                                                                                                                                      |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST `/businesses/:businessId/ai/respond` | Owner JWT/membership; IDs refer to a persisted source message; returns a validated stored response. It is an alternative trigger, not a direct Android-to-AI credential flow. |
+| POST `/internal/ai/data`                  | Distinct inbound service token and signed context through AiInternalGuard; exempt only from owner JWT.                                                                        |
+
+Android must not hold service keys, fabricate history or invoke the separate AI
+service directly. Whether the owner trigger belongs in a particular UI is a
+client/product decision; its existence must not be hidden from API documentation.
+
+The owner trigger accepts only the two persisted UUIDs, for example:
 
 ```json
 {
-  "businessId": "<stored-business-uuid>",
-  "customerId": "<stored-customer-uuid>",
-  "conversationId": "<stored-conversation-uuid>",
-  "messageId": "<stored-message-uuid>",
-  "message": "<current-stored-message>"
+  "conversationId": "11111111-1111-4111-8111-111111111111",
+  "messageId": "22222222-2222-4222-8222-222222222222"
 }
 ```
 
-- `X-Internal-Token` authenticates Backend → AI. `X-AI-Context` is an RS256 JWT,
-  signed only by Backend. It binds those four identities, SHA-256 of the exact
-  request body, issuer `brandora-backend`, audience `brandora-ai-tools-v1`,
-  scope `products:read conversations:read`, `iat` and a 60-second `exp`.
-- The current FastAPI canonical route uses Groq for structured interpretation
-  and constrained response composition, with deterministic fallback. Python
-  controls bounded read-only retrieval and requests history only when needed.
-  It does not use the earlier proposed Gemini `ToolStep` loop. Business scope,
-  credentials and URLs are supplied by trusted service code, not model output.
-- The existing evidence planner and constrained natural-response generator stay
-  responsible for facts, actual option combinations and safe read-only replies.
-- NestJS validates the exact E0-3 fields, re-attests the source message, then
-  invokes `saveReply`. There is no Order creation/update/cancellation.
+Use actual returned IDs from the owned Business, not these example values.
+Success is 200 with intent/reply/requiresReview/orderCandidate; disabled or
+unconfigured integration returns a safe 503. The request cannot supply message
+text, history or an authoritative customer/business identity.
 
-## Internal tools
+## Signed request and read tools
 
-`POST /internal/ai/data` requires BOTH `Authorization: Bearer <BACKEND_SERVICE_TOKEN>`
-and `X-AI-Context`. Its exemption from owner JWT is protected by `AiInternalGuard`;
-it is not an anonymous shortcut. No service token is returned to Android.
+The Backend reads and attests a scoped CUSTOMER/TEXT message, then serializes
+businessId, customerId, conversationId, messageId and stored message text. It
+sends X-Internal-Token using AI_SERVICE_TOKEN and an RS256 X-AI-Context. The
+context binds the four identities, exact-body SHA-256, issuer/audience, read
+scope, issuance and a 60-second expiry. Re-attestation after the external call
+rejects a changed source before saving a reply. No owner token is forwarded.
 
-```json
-{
-  "tool": "get_variant_details",
-  "arguments": { "productId": "<uuid>", "variantId": "<uuid>" }
-}
+AI_SERVICE_TOKEN and BACKEND_SERVICE_TOKEN are distinct directional credentials;
+Backend holds the private RSA key (at least 2048 bits), AI receives the public key.
+Service values are printable non-whitespace ASCII, 32–4096 characters. AI_BASE_URL
+is an HTTPS origin or explicit HTTP loopback, without userinfo/path/query/fragment.
+Redirects are rejected. Invalid/disabled settings fail closed with a safe 503.
+
+Internal tools are read-only and scoped from signed context, never a model-supplied
+businessId. Arguments have exact required/optional keys and strict UUID/number
+validation; unknown keys, URLs and write tools are rejected.
+
+| Backend tool             | Scope / input                                                                  |
+| ------------------------ | ------------------------------------------------------------------------------ |
+| get_products             | Signed Business; optional numeric limit/offset.                                |
+| get_product_details      | Scoped productId.                                                              |
+| get_product_variants     | Scoped productId; optional numeric limit/offset.                               |
+| get_variant_details      | Scoped productId and variantId.                                                |
+| get_conversation_history | Same signed conversationId; optional numeric limit/offset.                     |
+| get_business_info        | Signed Business profile, settings and working hours; compatibility capability. |
+
+The Backend supports all six. The separate canonical AI consumer's recorded
+five-tool allowlist excludes get_business_info; expanding its negotiated use
+requires alignment, not an assumption based on Backend availability. Contexts
+can be reused for several reads during their lifetime; this is not durable
+anti-replay authorization or permission to write.
+
+## Limits and response validation
+
+| Backend boundary        | Implemented limit                                                              |
+| ----------------------- | ------------------------------------------------------------------------------ |
+| Source customer text    | 2,000 Unicode code points; nonblank persisted CUSTOMER/TEXT only.              |
+| Outbound AI operation   | 30 seconds including body reads; no automatic provider retry.                  |
+| AI response JSON        | 65,536 serialized bytes; exactly intent/reply/requiresReview/orderCandidate.   |
+| Accepted intent         | INQUIRY, PURCHASE_INTENT or OTHER; CONFIRMED_ORDER is rejected at runtime.     |
+| Accepted reply          | Nonblank; at most 20,000 code points before outbound-message handling.         |
+| Candidate               | Must be null; no AI write tool creates/approves an order.                      |
+| Internal data response  | At most 131,072 serialized bytes; pagination limit 1–100, default 20/0.        |
+| Stored outbound message | At most 4,096 code points; longer AI replies use ellipsis/truncation metadata. |
+
+Previously recorded AI-side budgets were a 25-second total deadline, five seconds
+per Backend call, at most twelve request-local calls, retrieval bounds of eight
+calls/100 records/five seconds, and history bounds of three pages/sixty messages/
+12,000 characters/five seconds. Those external implementation assertions require
+AI-owner verification; they are not newly measured or enforced by all Backend
+code paths. Keep the AI deadline below the Backend's fixed deadline.
+
+## History and compatibility
+
+The adapter reads the same Business/Customer/Conversation strictly before the
+source timestamp, orders by createdAt descending then id descending, and returns
+a source-boundary hash. Entire current/future timestamps are excluded. Oversized
+history text is null. The validator checks shape, IDs, ordering and CUSTOMER
+timestamp ambiguity within a page. The hash is not a retained MVCC transaction
+or content digest over all pages; stronger cross-page guarantees remain an
+[explicit contract-alignment issue](ai-contract.md#implementation-alignment-requiring-owner-review).
+Do not present UUID ordering as proof of causality.
+
+Product/Variant data comes through existing scoped services. Prices remain decimal
+strings/null; Variant responses retain productId and catalogItemId. Active image
+metadata may be present, but there is no image-write tool or image recognition.
+External typed image consumption must be agreed separately; see
+[image handoff](product-images.md#upgrade-and-android-handoff).
+
+## Reply persistence, handoff and recovery
+
+Message.replyToMessageId uniqueness permits at most one persisted reply per source
+message. Claims coordinate callers; a crashed/expired generation attempt can be
+retried, so this is not exactly-once model invocation or delivery. The adapter
+returns the first saved reply on replay. Backend fallback/non-text replies also
+use persisted message identity.
+
+PURCHASE_INTENT records the newest purchase alert and notifies the owner through
+LoggingOwnerNotifier; no order or stock change occurs. requiresReview hands off
+after persisting the last reply. Two consecutive fallback replies trigger
+AI_UNAVAILABLE; oversized source text triggers MESSAGE_TOO_LONG. Owner takeover
+and replies disable automatic AI until re-enabled. The notifier logs IDs/reasons;
+there is no push-notification implementation.
+
+Recovery runs on startup and every REPLY_RECOVERY_SECONDS (default 30; nonpositive
+is off), requires WhatsApp enabled, and considers a fifteen-minute window with a
+ten-second grace period and batches of fifty. AI claims expire after two minutes,
+with at most two attempts. Automatic recovery replies must still be newest in
+their conversation; owner messages follow their own send path.
+
+WhatsAppSenderService claims sends and permits at most three attempts: immediate,
+then roughly thirty seconds and two more minutes through recovery. Policy permits
+retry for 429/5xx and pre-connection DNS/refusal failures. Timeouts or interrupted
+ambiguous sends can become FAILED instead of being resent; stale pending messages
+also expire. A customer can miss a reply. Do not claim that every restart completes
+delivery or that arbitrary external failures guarantee exactly-once delivery.
+Delivery reports move status forward; a later delivered/read report can establish
+delivery after failure. See [WhatsApp](whatsapp-api.md).
+
+Orders are owner-managed: creation snapshots data without stock deduction;
+approval rechecks and deducts stock transactionally; notification follows commit.
+See [Orders](orders-api.md) and [business rules](business-rules.md).
+
+## Verification and operational boundaries
+
+### Local persistent-path exercise
+
+The following maintained tools exercise AppModule with a fake AI, unlike the
+separate synthetic-context runner. Review their inputs first and use only an
+explicit disposable local database with an owned Business and linked test number:
+
+```sh
+node verification/tools/make-ai-dev-secrets.cjs
+npm run start:dev
+node verification/tools/fake-ai-service.cjs
+node verification/tools/send-whatsapp-webhook.cjs "Test product question"
 ```
 
-Returns `{tool, data}`; detail data is a direct object, collections use
-`{items, pagination}`. All business scope comes from the signed context.
+Run the server and fake service in separate terminals. The secrets helper writes
+private test configuration to `.env` and `.tmp/ai-dev/ai.env`; it is not a
+production setup command and was not run by documentation maintenance. Load the
+reviewed local configuration for each process. No real Meta send is needed in
+dry run. A separate real AI process can replace the fake only after explicit
+configuration/acceptance; no live model success is implied.
 
-| Tool                     | Arguments                             | Existing source                                    |
-| ------------------------ | ------------------------------------- | -------------------------------------------------- |
-| get_products             | optional limit/offset                 | ProductsService.list                               |
-| get_product_details      | productId                             | ProductsService.get                                |
-| get_product_variants     | productId; optional limit/offset      | VariantsService.list                               |
-| get_variant_details      | productId/variantId                   | VariantsService.get                                |
-| get_business_info        | none                                  | BusinessesService profile/settings/hours aggregate |
-| get_conversation_history | conversationId; optional limit/offset | AiConversationStore.historyBefore                  |
+### Acceptance coverage
 
-Unknown arguments, businessId arguments, invalid IDs, write tools and arbitrary
-URLs are rejected. Pagination is 1..100, default 20/0. Internal responses are
-limited to 128 KiB. The AI's current typed business mapper consumes the verified
-business identity; additional settings/hours presentation is not claimed.
-Products/variants reuse current presenters: prices are strings/null, zero stays
-zero, effectivePrice is unitPrice ?? basePrice, stock is variant-level. Inactive
-records remain explicit evidence so AI can decline them. No Catalog HTTP route
-or owner login credential is used.
+Use [local AI testing](ai-local-testing.md) for the separate synthetic loopback
+runner and [testing](testing.md) for mocked/real-PostgreSQL acceptance layers.
+Historical acceptance maps include duplicate webhooks, claim races, source binding,
+history isolation/cutoff, purchase alerts, price changes, concurrent approvals,
+handoff and restart states. Test case numbers are not stable API identifiers.
 
-Backend supports all six tools, but the current canonical FastAPI allowlist
-contains only the four Product/Variant tools plus conversation history.
-`get_business_info` is therefore not an enabled canonical AI capability. Its
-typed AI model also currently consumes only business identity, not settings or
-working hours. Expanding that capability needs a separate agreed contract/test.
-
-## Conversation dependency — fail closed
-
-> **Update (conversations team):** `ConversationsAiStore` in `src/conversations/`
-> is now the registered `AiConversationStore`, and every new WhatsApp customer
-> message is answered through `AiService.respond`. How it meets the four points
-> below, and how to run it locally: [ai-replies.md](ai-replies.md).
-
-Current main has no Customer/Conversation/Message models. The cached branch
-`origin/feature/customers-conversations@0e92d6b` contains their foundation, but
-predates current auth/products and must not be enabled by copying old controllers.
-No competing persistence, schema changes or migrations were introduced here.
-
-The registered `UnavailableAiConversationStore` intentionally returns 503.
-Thus the end-to-end customer path remains BLOCKED until the conversations team
-provides and registers the real adapter. The synthetic request registry is used
-only by the separate development runner and is never registered in AppModule.
-The adapter must:
-
-1. Attest all four identities and return only a persisted CUSTOMER/TEXT message.
-2. Read history strictly before that source turn, with an immutable cutoff,
-   stable snapshot/revision and deterministic createdAt DESC, id DESC ordering.
-   Exclude current/future messages; retain CUSTOMER/AI/OWNER roles and timezone
-   timestamps. Reject edits/deletions that invalidate the snapshot.
-3. Return the `AuthorizedHistoryPage` shape already defined by AI: scope IDs,
-   beforeMessageId/beforeMessageCreatedAt, snapshot, order, complete, pagination,
-   items. Backend validates each page; AI validates consistent pages and bounds
-   history to 3 pages/60 messages/12000 characters. Ambiguous timestamps or partial
-   context produce clarification, never fabricated prior context.
-4. Atomically persist at most one AI reply per sourceMessageId, reject stale or
-   changed source turns and serialize conflicting conversation writes. Define
-   idempotent replay/concurrency behavior before enabling the real adapter.
-
-Context JWTs are intentionally reusable for multiple read tools for 60 seconds.
-They do not authorize writes or claim durable anti-replay/exactly-once generation.
-No refresh token or owner's access token is shared between services.
-
-## Configuration and limits
-
-Integration is disabled when the flag is unset; `.env.example` explicitly sets
-`AI_INTEGRATION_ENABLED=false`. Keep it disabled while conversation persistence,
-contract/security review and end-to-end verification remain incomplete. Setting
-the flag alone cannot bypass the registered unavailable conversation store.
-
-Future Backend opt-in: `AI_INTEGRATION_ENABLED=true`, `AI_BASE_URL`, `AI_SERVICE_TOKEN`,
-`BACKEND_SERVICE_TOKEN`, `AI_CONTEXT_PRIVATE_KEY` (RSA >=2048 bits).
-Unconfigured/disabled integration returns 503; existing authentication stays usable.
-Service tokens must be distinct, printable non-whitespace ASCII, >=32 characters.
-Only HTTPS origins or explicit HTTP loopback are accepted. Provider requests
-reject redirects, abort after 30 seconds including body reads, cap body at 64 KiB
-and do not retry. Provider, JSON, persistence and network errors are sanitized.
-Store adapters must separately bound their database operations.
-
-AI uses `BACKEND_CONTEXT_PUBLIC_KEY` (only the corresponding public key),
-`AI_INTEGRATION_ENABLED`, `AI_SERVICE_TOKEN`, `BACKEND_SERVICE_TOKEN`,
-`BACKEND_BASE_URL`, `APP_ENV`, `BACKEND_TIMEOUT_SECONDS`,
-`INTEGRATION_TIMEOUT_SECONDS`, `TRUSTED_PROXY_CIDRS`, `GROQ_API_KEY`, `GROQ_MODELS`
-and the `CHAT_*` provider budgets. Its release launcher forces the legacy provider
-to rules mode and disables legacy routes; Gemini/OpenRouter configuration does
-not activate those providers on the canonical route. Missing Groq credentials
-permit deterministic fallback and are not proof of live model readiness.
-
-Current AI defaults are 25 seconds for the canonical deadline and 5 seconds per
-Backend call. Keep the complete AI deadline below Backend's 30-second outbound
-timeout with room for transport; AI rejects total deadlines above 25
-seconds, leaving five seconds below Backend's fixed 30-second HTTPS timeout. The issued
-context expires after 60 seconds; retries must not extend its authorization.
-
-Canonical request-local reads are capped at 12 calls, with caching. Each retrieval
-has separate limits of 8 calls, 100 records and 5 seconds; history has separate
-limits of 3 pages, 60 messages, 12000 characters and 5 seconds. These are nested
-budgets, not the previously proposed Gemini tool-loop budgets.
-
-Orders/candidates remain disabled in
-this read-only profile: intent is INQUIRY/PURCHASE_INTENT/OTHER, reply is bounded,
-requiresReview is boolean, orderCandidate is null. Original E0-3 schemas and
-candidate identifiers are retained for future separately approved Orders work.
-
-The AI integration does not modify Railway/Neon variables, deployment files,
-import storage, user auth, refresh sessions or authentication email behavior. The separate
-[Product schema rollout](product-domain-database-rollout.md) requires coordinated deployment.
-No live model or deployed Backend test is implied by mocked test results.
-
-## Remaining contract alignment before activation
-
-Product reads now include `colorOptionName` / active image metadata; no image
-write tool or image recognition is enabled. The FastAPI Product parser still
-ignores these additional fields; the local compatibility fixes do not add image support. Its variant parser
-still uses the retained JSON `catalogItemId` alias; internal Backend storage now
-uses `productId`. Malak's future typed image contract and fallback requirements
-are listed in [Product images](product-images.md#android-and-ai).
-
-- Backend main has no conversation persistence adapter. Both request paths
-  re-attest a stored source message, so the unavailable store blocks real use.
-- Both validators exclude the entire current-message timestamp, independent of
-  UUID order. Older rows sort by createdAt DESC/id DESC; CUSTOMER timestamp ties
-  are ambiguous and rejected. The future store must attest ties across pages,
-  immutable boundaries and stable snapshots; UUIDs do not establish causality.
-- Both canonical history DTOs cap non-null content at 2000 Unicode code points,
-  matching current messages. Oversized history is rejected without truncation;
-  unavailable/partial history clarifies. Only nonblank CUSTOMER/TEXT content can
-  reconstruct selectors; historical database storage is not rewritten.
-- Product discovery is bounded pagination/local matching, not a Backend search
-  endpoint or complete-catalog guarantee. Partial coverage must remain explicit.
-- The AI release launcher requires verified proxy CIDRs for HTTPS attribution.
-  No live ingress trust boundary or production settings were verified here.
-
-Canonical output is already bounded to 20000 reply code points and 65536
-serialized UTF-8 bytes. Local synthetic HTTP verification and its limits are
-recorded in [local verification evidence](local-verification.md); production
-conversation acceptance and live Groq remain unverified.
+Live model behavior, external client parsing, Meta delivery, provider credentials,
+ingress provenance and current deployment are separate owner acceptance items.
+No source, schema, provider configuration or external service was changed by
+this consolidation.

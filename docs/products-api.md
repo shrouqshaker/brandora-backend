@@ -10,7 +10,7 @@ workflow and matches products using business-scoped `externalKey` grouping ident
 These APIs use Category, Product, ProductVariant and ProductImage models. The variant-only
 inventory upgrade removes product-level stock and upgrades Excel imports; see
 [Inventory](inventory-api.md), [Imports](imports-api.md) and the
-[migration/Orders coordination contract](variant-inventory-rollout.md).
+[migration/Orders coordination contract](database.md#migration-strategy).
 Bearer tokens and active OWNER membership are required; see [Authentication](auth-api.md).
 
 Product responses include optional `colorOptionName` and active `images`.
@@ -96,16 +96,16 @@ uncategorized-only filter.
 
 POST requires name; PATCH supports partial updates with at least one field:
 
-| Field       | Input and update behavior                                                                                                       |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| name        | Trimmed nonblank string, max 200; cannot be null                                                                                |
+| Field       | Input and update behavior                                                                                                                                |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| name        | Trimmed nonblank string, max 200; cannot be null                                                                                                         |
 | externalKey | Optional trimmed string, max 200; case-sensitive and unique per business, including inactive products; null or blank clears; omission preserves on PATCH |
-| description | Optional string, max 5000; null clears                                                                                          |
-| categoryId  | Optional UUID from the same business; null clears                                                                               |
-| basePrice   | Optional nonnegative decimal string, up to 10 integer digits / 2 decimals; null clears                                          |
-| options     | Optional object (default `{}` on POST); cannot be null; replaces definitions                                                    |
-| attributes  | Optional JSON object, max 16384 UTF-8 bytes and nesting depth 10; cannot be null; replaces the object; `{}` clears its contents |
-| isActive    | Optional boolean; default true on POST; PATCH can reactivate a product                                                          |
+| description | Optional string, max 5000; null clears                                                                                                                   |
+| categoryId  | Optional UUID from the same business; null clears                                                                                                        |
+| basePrice   | Optional nonnegative decimal string, up to 10 integer digits / 2 decimals; null clears                                                                   |
+| options     | Optional object (default `{}` on POST); cannot be null; replaces definitions                                                                             |
+| attributes  | Optional JSON object, max 16384 UTF-8 bytes and nesting depth 10; cannot be null; replaces the object; `{}` clears its contents                          |
+| isActive    | Optional boolean; default true on POST; PATCH can reactivate a product                                                                                   |
 
 Numbers, exponents, signs, currency/grouping separators, and excess precision
 are rejected for prices. Responses use fixed two-decimal strings or null, including
@@ -239,22 +239,22 @@ None of these lifecycle operations changes stock or creates inventory movements.
 Use the existing `{ statusCode, code, message, error }` error envelope. Known
 conflicts do not expose Prisma/SQL diagnostics.
 
-| Code                     | HTTP | Meaning                                                                      |
-| ------------------------ | ---- | ---------------------------------------------------------------------------- |
-| VALIDATION_ERROR         | 400  | DTO, JSON shape/size or product definition validation                        |
-| VARIANT_OPTIONS_INVALID  | 400  | Invalid/missing selected combination                                         |
-| BUSINESS_NOT_FOUND       | 404  | Business missing for create/list                                             |
-| CATEGORY_NOT_FOUND       | 404  | Category missing, removed concurrently or tenant mismatch                    |
-| PRODUCT_NOT_FOUND        | 404  | Parent product missing or tenant mismatch                                    |
-| VARIANT_NOT_FOUND        | 404  | Variant missing or mismatched parent/business                                |
-| CATEGORY_NAME_CONFLICT   | 409  | Database normalized name conflict                                            |
-| CATEGORY_IN_USE          | 409  | Referenced category, including inactive products                             |
-| PRODUCT_OPTIONS_IN_USE   | 409  | Option edit invalidates an existing variant                                  |
-| PRODUCT_INACTIVE         | 409  | Cannot create or reactivate a variant under an inactive product              |
-| VARIANT_SKU_CONFLICT     | 409  | SKU reserved in this business                                                |
-| VARIANT_OPTIONS_CONFLICT | 409  | Combination reserved for this product                                        |
-| PRODUCT_WRITE_CONFLICT   | 409  | Transaction contention or interactive-transaction timeout; refresh and retry |
-| PRODUCT_EXTERNAL_KEY_CONFLICT | 409 | Product externalKey reserved in this business, including inactive products |
+| Code                          | HTTP | Meaning                                                                      |
+| ----------------------------- | ---- | ---------------------------------------------------------------------------- |
+| VALIDATION_ERROR              | 400  | DTO, JSON shape/size or product definition validation                        |
+| VARIANT_OPTIONS_INVALID       | 400  | Invalid/missing selected combination                                         |
+| BUSINESS_NOT_FOUND            | 404  | Business missing for create/list                                             |
+| CATEGORY_NOT_FOUND            | 404  | Category missing, removed concurrently or tenant mismatch                    |
+| PRODUCT_NOT_FOUND             | 404  | Parent product missing or tenant mismatch                                    |
+| VARIANT_NOT_FOUND             | 404  | Variant missing or mismatched parent/business                                |
+| CATEGORY_NAME_CONFLICT        | 409  | Database normalized name conflict                                            |
+| CATEGORY_IN_USE               | 409  | Referenced category, including inactive products                             |
+| PRODUCT_OPTIONS_IN_USE        | 409  | Option edit invalidates an existing variant                                  |
+| PRODUCT_INACTIVE              | 409  | Cannot create or reactivate a variant under an inactive product              |
+| VARIANT_SKU_CONFLICT          | 409  | SKU reserved in this business                                                |
+| VARIANT_OPTIONS_CONFLICT      | 409  | Combination reserved for this product                                        |
+| PRODUCT_WRITE_CONFLICT        | 409  | Transaction contention or interactive-transaction timeout; refresh and retry |
+| PRODUCT_EXTERNAL_KEY_CONFLICT | 409  | Product externalKey reserved in this business, including inactive products   |
 
 Unexpected errors retain the existing sanitized 500 response. There is no Orders
 API here. Stock changes belong exclusively to InventoryService. Excel now creates
