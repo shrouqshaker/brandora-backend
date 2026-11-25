@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
+import { ProductsModule } from '../products/products.module';
 import { ExcelAdapter } from './adapters/excel.adapter';
 import { ImportsController } from './imports.controller';
 import { ImportJobsController } from './import-jobs.controller';
@@ -20,7 +21,7 @@ import { ExecutionController } from './execution.controller';
 import { ExecutionService } from './execution.service';
 
 @Module({
-  imports: [PrismaModule, InventoryModule],
+  imports: [PrismaModule, InventoryModule, ProductsModule],
   controllers: [
     ImportsController,
     ImportJobsController,

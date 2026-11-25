@@ -8,6 +8,7 @@ import { ExcelAdapter } from '../../src/imports/adapters/excel.adapter';
 import { ImportJobsController } from '../../src/imports/import-jobs.controller';
 import { ImportsService } from '../../src/imports/imports.service';
 import { ImportFileStorage } from '../../src/imports/storage/import-file.storage';
+import { ProductAccessService } from '../../src/products/product-access.service';
 
 describe('Import status and history HTTP API', () => {
   const businessId = 'c06a904b-14a7-4de7-98c9-9cac5bb4559b';
@@ -78,6 +79,7 @@ describe('Import status and history HTTP API', () => {
       controllers: [ImportJobsController],
       providers: [
         ImportsService,
+        ProductAccessService,
         { provide: PrismaService, useValue: prisma },
         { provide: ExcelAdapter, useValue: excel },
         { provide: ImportFileStorage, useValue: storage },
@@ -197,11 +199,21 @@ describe('Import status and history HTTP API', () => {
     });
   });
   it('returns BUSINESS_NOT_FOUND instead of [] for a nonexistent business', async () => {
-    await expectCode(
-      request(app.getHttpServer()).get(`/businesses/${otherBusiness}/imports`),
-      404,
-      'BUSINESS_NOT_FOUND',
-    );
+    const response = await request(app.getHttpServer())
+      .get(`/businesses/${otherBusiness}/imports`)
+      .expect(404);
+    expect(response.body).toEqual({
+      statusCode: 404,
+      code: 'BUSINESS_NOT_FOUND',
+      message: 'Business not found',
+      error: 'Not Found',
+    });
+    expect(prisma.business.findUnique).toHaveBeenCalledTimes(1);
+    expect(prisma.business.findUnique).toHaveBeenCalledWith({
+      where: { id: otherBusiness },
+      select: { id: true },
+    });
+    expect(prisma.importJob.count).not.toHaveBeenCalled();
     expect(prisma.importJob.findMany).not.toHaveBeenCalled();
   });
   it('rejects an invalid business UUID before querying', async () => {
@@ -245,6 +257,14 @@ describe('Import status and history HTTP API', () => {
     expect(
       Object.keys(prisma.importJob.findMany.mock.calls[0][0].select).sort(),
     ).toEqual(fields);
+    expect(prisma.business.findUnique).toHaveBeenCalledTimes(1);
+    expect(prisma.business.findUnique).toHaveBeenCalledWith({
+      where: { id: businessId },
+      select: { id: true },
+    });
+    expect(prisma.business.findUnique.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.importJob.count.mock.invocationCallOrder[0],
+    );
   });
   it('applies default history page size 20', async () => {
     jobs = Array.from({ length: 25 }, (_, i) => record({ id: String(i) }));

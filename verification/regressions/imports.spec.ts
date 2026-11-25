@@ -15,12 +15,17 @@ import { PrismaService } from '../../src/prisma/prisma.service';
 import { Prisma } from '../../src/generated/prisma/client';
 import { ImportFileStorage } from '../../src/imports/storage/import-file.storage';
 import { LocalImportFileStorage } from '../../src/imports/storage/local-import-file.storage';
+import { ProductAccessService } from '../../src/products/product-access.service';
+import { AppModule } from '../../src/app.module';
+import { ImportsModule } from '../../src/imports/imports.module';
+import { ProductsModule } from '../../src/products/products.module';
 
 describe('Excel analysis HTTP API (real ExcelJS, mocked database)', () => {
   let app: INestApplication;
   let buffer: Buffer;
   let storageDirectory: string;
   let storage: LocalImportFileStorage;
+  let excel: ExcelAdapter;
   const businessId = 'f6bc7287-3285-4e19-a819-459c41f0a138';
   const path = `/businesses/${businessId}/imports/excel/analyze`;
   const prisma = {
@@ -42,11 +47,13 @@ describe('Excel analysis HTTP API (real ExcelJS, mocked database)', () => {
       controllers: [ImportsController],
       providers: [
         ImportsService,
+        ProductAccessService,
         ExcelAdapter,
         { provide: PrismaService, useValue: prisma },
         { provide: ImportFileStorage, useValue: storage },
       ],
     }).compile();
+    excel = module.get(ExcelAdapter);
     app = module.createNestApplication();
     app.useGlobalFilters(new HttpExceptionFilter(app.get(HttpAdapterHost)));
     app.useLogger(false);
@@ -96,6 +103,8 @@ describe('Excel analysis HTTP API (real ExcelJS, mocked database)', () => {
   });
 
   it('detects a header after a title/blank row, returns five samples, and records a job', async () => {
+    const validate = jest.spyOn(excel, 'validateUpload');
+    const save = jest.spyOn(storage, 'save');
     const response = await request(app.getHttpServer())
       .post(path)
       .attach('file', buffer, 'catalog.xlsx')
@@ -136,6 +145,17 @@ describe('Excel analysis HTTP API (real ExcelJS, mocked database)', () => {
     );
     expect(await restartedStorage.read(fileKey)).toEqual(buffer);
     expect(response.body).not.toHaveProperty('fileKey');
+    expect(prisma.business.findUnique).toHaveBeenCalledTimes(1);
+    expect(prisma.business.findUnique).toHaveBeenCalledWith({
+      where: { id: businessId },
+      select: { id: true },
+    });
+    expect(prisma.business.findUnique.mock.invocationCallOrder[0]).toBeLessThan(
+      validate.mock.invocationCallOrder[0],
+    );
+    expect(validate.mock.invocationCallOrder[0]).toBeLessThan(
+      save.mock.invocationCallOrder[0],
+    );
   });
 
   it('selects an explicit sheet and returns fewer samples when fewer rows exist', async () => {
@@ -195,10 +215,17 @@ describe('Excel analysis HTTP API (real ExcelJS, mocked database)', () => {
         { code: 'P2003', clientVersion: '7' },
       ),
     );
-    await request(app.getHttpServer())
+    const response = await request(app.getHttpServer())
       .post(path)
       .attach('file', buffer, 'catalog.xlsx')
       .expect(404);
+    expect(response.body).toEqual({
+      statusCode: 404,
+      code: 'BUSINESS_NOT_FOUND',
+      message: 'Business not found',
+      error: 'Not Found',
+    });
+    expect(prisma.business.findUnique).toHaveBeenCalledTimes(1);
     expect(await readdir(storageDirectory)).toEqual([]);
   });
 
@@ -245,12 +272,67 @@ describe('Excel analysis HTTP API (real ExcelJS, mocked database)', () => {
     expect(prisma.importJob.create).not.toHaveBeenCalled();
   });
 
-  it('returns 404 for a nonexistent business', async () => {
-    prisma.business.findUnique.mockResolvedValue(null);
-    await request(app.getHttpServer())
-      .post(path)
-      .attach('file', buffer, 'catalog.xlsx')
-      .expect(404);
-    expect(prisma.importJob.create).not.toHaveBeenCalled();
+  it.each(['valid file', 'missing file', 'invalid file'])(
+    'checks business existence before validating %s',
+    async (file) => {
+      prisma.business.findUnique.mockResolvedValue(null);
+      const validate = jest.spyOn(excel, 'validateUpload');
+      const analyze = jest.spyOn(excel, 'analyze');
+      const save = jest.spyOn(storage, 'save');
+      const read = jest.spyOn(storage, 'read');
+      const remove = jest.spyOn(storage, 'delete');
+      const call = request(app.getHttpServer()).post(path);
+      if (file !== 'missing file')
+        call.attach(
+          'file',
+          file === 'valid file' ? buffer : Buffer.from('invalid'),
+          file === 'valid file' ? 'catalog.xlsx' : 'catalog.xls',
+        );
+      const response = await call.expect(404);
+      expect(response.body).toEqual({
+        statusCode: 404,
+        code: 'BUSINESS_NOT_FOUND',
+        message: 'Business not found',
+        error: 'Not Found',
+      });
+      expect(prisma.business.findUnique).toHaveBeenCalledTimes(1);
+      expect(prisma.business.findUnique).toHaveBeenCalledWith({
+        where: { id: businessId },
+        select: { id: true },
+      });
+      for (const operation of [validate, analyze, save, read, remove])
+        expect(operation).not.toHaveBeenCalled();
+      expect(prisma.importJob.create).not.toHaveBeenCalled();
+      expect(await readdir(storageDirectory)).toEqual([]);
+    },
+  );
+
+  it('compiles the real module graph and injects the exported Products access service into Imports', async () => {
+    const module = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(PrismaService)
+      .useValue(prisma)
+      .overrideProvider(ImportFileStorage)
+      .useValue(storage)
+      .compile();
+    const access = module
+      .select(ProductsModule)
+      .get(ProductAccessService, { strict: true });
+    const service = module
+      .select(ImportsModule)
+      .get(ImportsService, { strict: true });
+    const failure = new Error('synthetic business lookup failure');
+    const spy = jest.spyOn(access, 'business').mockRejectedValueOnce(failure);
+    try {
+      await expect(service.analyze(businessId, undefined)).rejects.toBe(
+        failure,
+      );
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith(businessId);
+      expect(prisma.business.findUnique).not.toHaveBeenCalled();
+      expect(prisma.importJob.create).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+      await module.close();
+    }
   });
 });

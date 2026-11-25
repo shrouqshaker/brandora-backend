@@ -7,6 +7,7 @@ import {
   Prisma,
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { ProductAccessService } from '../products/product-access.service';
 import { ExcelAdapter } from './adapters/excel.adapter';
 import { ImportFileStorage } from './storage/import-file.storage';
 import { ImportHistoryPaginationDto } from './dto/import-pagination.dto';
@@ -39,6 +40,7 @@ export class ImportsService {
     private readonly prisma: PrismaService,
     private readonly excel: ExcelAdapter,
     private readonly storage: ImportFileStorage,
+    private readonly access: ProductAccessService,
   ) {}
 
   async getJob(importId: string) {
@@ -56,16 +58,7 @@ export class ImportsService {
   }
 
   async listJobs(businessId: string, pagination: ImportHistoryPaginationDto) {
-    const business = await this.prisma.business.findUnique({
-      where: { id: businessId },
-      select: { id: true },
-    });
-    if (!business)
-      throw new AppHttpException(
-        ErrorCode.BUSINESS_NOT_FOUND,
-        HttpStatus.NOT_FOUND,
-        'Business not found',
-      );
+    await this.access.business(businessId);
     const totalCount = await this.prisma.importJob.count({
       where: { businessId },
     });
@@ -88,16 +81,7 @@ export class ImportsService {
     file: Express.Multer.File | undefined,
     sheetName?: string,
   ) {
-    const business = await this.prisma.business.findUnique({
-      where: { id: businessId },
-      select: { id: true },
-    });
-    if (!business)
-      throw new AppHttpException(
-        ErrorCode.BUSINESS_NOT_FOUND,
-        HttpStatus.NOT_FOUND,
-        'Business not found',
-      );
+    await this.access.business(businessId);
     const upload = this.excel.validateUpload(file);
     const fileKey = await this.storage.save(upload.buffer);
     try {
