@@ -3,6 +3,7 @@ import { AppHttpException } from '../common/errors/app-http.exception';
 import { ErrorCode } from '../common/errors/error-code';
 import { InventoryMovementType, Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { ProductAccessService } from '../products/product-access.service';
 import { PaginationQueryDto } from '../common/pagination/pagination-query.dto';
 import { createPagination } from '../common/pagination/pagination';
 
@@ -40,7 +41,10 @@ const movementSelect = {
 
 @Injectable()
 export class InventoryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly access: ProductAccessService,
+  ) {}
   private fail(
     code: ErrorCode,
     message: string,
@@ -127,17 +131,7 @@ export class InventoryService {
     businessId: string,
     pagination: PaginationQueryDto,
   ) {
-    if (
-      !(await this.prisma.business.findUnique({
-        where: { id: businessId },
-        select: { id: true },
-      }))
-    )
-      this.fail(
-        ErrorCode.BUSINESS_NOT_FOUND,
-        'Business not found',
-        HttpStatus.NOT_FOUND,
-      );
+    await this.access.business(businessId);
     return this.listMovements({ businessId }, pagination);
   }
   private async listMovements(
