@@ -4,25 +4,18 @@ import { createPagination } from '../common/pagination/pagination';
 import { PaginationQueryDto } from '../common/pagination/pagination-query.dto';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { fail } from '../products/product-access.service';
+import { fail, ProductAccessService } from '../products/product-access.service';
 import { CategoryDto } from './dto/category.dto';
 
 @Injectable()
 export class CategoriesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly access: ProductAccessService,
+  ) {}
 
   async create(businessId: string, dto: CategoryDto) {
-    if (
-      !(await this.prisma.business.findUnique({
-        where: { id: businessId },
-        select: { id: true },
-      }))
-    )
-      fail(
-        ErrorCode.BUSINESS_NOT_FOUND,
-        HttpStatus.NOT_FOUND,
-        'Business not found',
-      );
+    await this.access.business(businessId);
     try {
       return await this.prisma.category.create({
         data: { businessId, name: dto.name },
@@ -35,17 +28,7 @@ export class CategoriesService {
   list(businessId: string, page: PaginationQueryDto) {
     return this.prisma.$transaction(
       async (tx) => {
-        if (
-          !(await tx.business.findUnique({
-            where: { id: businessId },
-            select: { id: true },
-          }))
-        )
-          fail(
-            ErrorCode.BUSINESS_NOT_FOUND,
-            HttpStatus.NOT_FOUND,
-            'Business not found',
-          );
+        await this.access.business(businessId, tx);
         const where = { businessId };
         const totalCount = await tx.category.count({ where });
         const items =
