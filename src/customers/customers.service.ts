@@ -5,6 +5,7 @@ import { PaginationQueryDto } from '../common/pagination/pagination-query.dto';
 import { createPagination } from '../common/pagination/pagination';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { ProductAccessService } from '../products/product-access.service';
 
 export const customerSelect = {
   id: true,
@@ -17,10 +18,13 @@ export const customerSelect = {
 
 @Injectable()
 export class CustomersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly access: ProductAccessService,
+  ) {}
 
   async list(businessId: string, pagination: PaginationQueryDto) {
-    await this.requireBusiness(businessId);
+    await this.access.business(businessId);
     const where = { businessId };
     const totalCount = await this.prisma.customer.count({ where });
     const items =
@@ -65,18 +69,5 @@ export class CustomersService {
       update: name ? { name } : {},
       select: customerSelect,
     });
-  }
-
-  private async requireBusiness(businessId: string): Promise<void> {
-    const business = await this.prisma.business.findUnique({
-      where: { id: businessId },
-      select: { id: true },
-    });
-    if (!business)
-      throw new AppHttpException(
-        ErrorCode.BUSINESS_NOT_FOUND,
-        HttpStatus.NOT_FOUND,
-        'Business not found',
-      );
   }
 }
