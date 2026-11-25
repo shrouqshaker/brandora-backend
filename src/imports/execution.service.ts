@@ -117,7 +117,11 @@ export class ExecutionService {
         },
       });
       if (!job?.fileKey || !job.sheetName || job.headerRow === null)
-        throw new Error('Missing workbook metadata');
+        throw new AppHttpException(
+          ErrorCode.IMPORT_WORKBOOK_UNAVAILABLE,
+          HttpStatus.CONFLICT,
+          'The import job has no retained mapped workbook',
+        );
       const workbook = await this.excel.readDataRows(
         await this.storage.read(job.fileKey),
         job.sheetName,
@@ -199,7 +203,7 @@ export class ExecutionService {
         failedRows,
         invalidRows: validated.invalidRows,
       };
-    } catch {
+    } catch (error: unknown) {
       this.logger.error(
         'Import execution failed; inspect job counters and sanitized row errors',
       );
@@ -221,6 +225,11 @@ export class ExecutionService {
       } catch {
         this.logger.error('Unable to persist failed execution status');
       }
+      if (
+        error instanceof AppHttpException &&
+        error.code === ErrorCode.IMPORT_WORKBOOK_UNAVAILABLE
+      )
+        throw error;
       throw new AppHttpException(
         ErrorCode.IMPORT_EXECUTION_FAILED,
         HttpStatus.INTERNAL_SERVER_ERROR,

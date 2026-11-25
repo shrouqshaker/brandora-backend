@@ -142,12 +142,107 @@ describe('Variant import execution lifecycle (group SQL exercised in PostgreSQL 
     });
     expect(JSON.stringify(result)).not.toContain('private SQL');
   });
-  it('persists FAILED status if workbook reading fails', async () => {
+  it.each([
+    ['file key', { fileKey: null }],
+    ['empty file key', { fileKey: '' }],
+    ['sheet name', { sheetName: null }],
+    ['empty sheet name', { sheetName: '' }],
+    ['header row', { headerRow: null }],
+    ['claimed job', null],
+  ])(
+    'reports unavailable workbook for missing %s after claiming execution',
+    async (_field, metadata) => {
+      db.importJob.findUnique
+        .mockResolvedValueOnce({ status: 'READY' })
+        .mockResolvedValueOnce(
+          metadata === null
+            ? null
+            : {
+                businessId: 'business',
+                fileKey: 'file',
+                sheetName: 'Products',
+                headerRow: 1,
+                mapping,
+                ...metadata,
+              },
+        );
+      await expect(service.execute('job')).rejects.toMatchObject({
+        code: 'IMPORT_WORKBOOK_UNAVAILABLE',
+        status: 409,
+        response: {
+          code: 'IMPORT_WORKBOOK_UNAVAILABLE',
+          message: 'The import job has no retained mapped workbook',
+        },
+      });
+      expect(state).toBe('FAILED');
+      expect(db.importJob.updateMany).toHaveBeenCalledTimes(2);
+      expect(db.importJob.updateMany).toHaveBeenLastCalledWith({
+        where: { id: 'job', status: 'IMPORTING' },
+        data: {
+          status: 'FAILED',
+          totalRows: 0,
+          validRows: 0,
+          invalidRows: 0,
+          skippedRows: 0,
+          insertedCount: 0,
+          updatedCount: 0,
+          failedCount: 0,
+          errors: {
+            rows: [],
+            execution: [],
+            job: {
+              code: 'EXECUTION_FAILED',
+              message: 'Import execution could not be completed',
+            },
+          },
+        },
+      });
+      expect(storage.read).not.toHaveBeenCalled();
+      expect(excel.readDataRows).not.toHaveBeenCalled();
+      expect((service as any).executeGroup).not.toHaveBeenCalled();
+    },
+  );
+  it('preserves the workbook error if recording FAILED status also fails', async () => {
+    db.importJob.findUnique
+      .mockResolvedValueOnce({ status: 'READY' })
+      .mockResolvedValueOnce({ fileKey: null });
+    // The claim succeeds; only the subsequent failure recording is unavailable.
+    db.importJob.updateMany
+      .mockReset()
+      .mockResolvedValueOnce({ count: 1 })
+      .mockRejectedValueOnce(new Error('private database error'));
+    await expect(service.execute('job')).rejects.toMatchObject({
+      code: 'IMPORT_WORKBOOK_UNAVAILABLE',
+      status: 409,
+    });
+    expect(db.importJob.updateMany).toHaveBeenCalledTimes(2);
+  });
+  it('persists FAILED status and sanitizes unexpected workbook reading failures', async () => {
     storage.read.mockRejectedValue(new Error('private file path'));
     await expect(service.execute('job')).rejects.toMatchObject({
       code: 'IMPORT_EXECUTION_FAILED',
+      status: 500,
+      response: {
+        code: 'IMPORT_EXECUTION_FAILED',
+        message: 'Import execution could not be completed',
+      },
     });
     expect(state).toBe('FAILED');
+    expect(db.importJob.updateMany).toHaveBeenLastCalledWith({
+      where: { id: 'job', status: 'IMPORTING' },
+      data: expect.objectContaining({
+        status: 'FAILED',
+        errors: {
+          rows: [],
+          execution: [],
+          job: {
+            code: 'EXECUTION_FAILED',
+            message: 'Import execution could not be completed',
+          },
+        },
+      }),
+    });
+    expect((service as any).executeGroup).not.toHaveBeenCalled();
   });
   it('retries only definitely aborted serializable transactions with a bounded new transaction', async () => {
     (service as any).executeGroup.mockRestore();
