@@ -2,6 +2,7 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { AppHttpException } from '../common/errors/app-http.exception';
 import { ErrorCode } from '../common/errors/error-code';
 import { PrismaService } from '../prisma/prisma.service';
+import { ProductAccessService } from '../products/product-access.service';
 import { DayOfWeek, Prisma } from '../generated/prisma/client';
 import { UpdateBusinessDto } from './dto/update-business.dto';
 import { CreateBusinessDto } from './dto/create-business.dto';
@@ -37,7 +38,10 @@ const weekdays = Object.values(DayOfWeek);
 
 @Injectable()
 export class BusinessesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly access: ProductAccessService,
+  ) {}
 
   async create(dto: CreateBusinessDto, userId: string) {
     return this.prisma.$transaction((tx) =>
@@ -90,16 +94,6 @@ export class BusinessesService {
     return business;
   }
 
-  private async requireBusiness(id: string) {
-    if (
-      !(await this.prisma.business.findUnique({
-        where: { id },
-        select: { id: true },
-      }))
-    )
-      this.notFound();
-  }
-
   async update(id: string, dto: UpdateBusinessDto) {
     const data = this.provided(dto, [
       'name',
@@ -121,7 +115,7 @@ export class BusinessesService {
   }
 
   async settings(id: string) {
-    await this.requireBusiness(id);
+    await this.access.business(id);
     return (
       (await this.prisma.businessSettings.findUnique({
         where: { businessId: id },
@@ -133,7 +127,7 @@ export class BusinessesService {
   async updateSettings(id: string, dto: UpdateBusinessSettingsDto) {
     const data = this.provided(dto, Object.keys(settingsDefaults));
     this.requirePatch(data);
-    await this.requireBusiness(id);
+    await this.access.business(id);
     try {
       return await this.prisma.businessSettings.upsert({
         where: { businessId: id },
@@ -147,7 +141,7 @@ export class BusinessesService {
   }
 
   async hours(id: string) {
-    await this.requireBusiness(id);
+    await this.access.business(id);
     return this.prisma.workingHour.findMany({
       where: { businessId: id },
       orderBy: { dayOfWeek: 'asc' },
@@ -168,7 +162,7 @@ export class BusinessesService {
           'Closed days must omit opening and closing times or set them to null',
         );
     }
-    await this.requireBusiness(id);
+    await this.access.business(id);
     try {
       return await this.prisma.$transaction(async (tx) => {
         const schedule = [];

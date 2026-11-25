@@ -12,6 +12,9 @@ const {
 const { BusinessesService } = require('../dist/businesses/businesses.service');
 const { PrismaService } = require('../dist/prisma/prisma.service');
 const {
+  ProductAccessService,
+} = require('../dist/products/product-access.service');
+const {
   HttpExceptionFilter,
 } = require('../dist/common/errors/http-exception.filter');
 
@@ -63,6 +66,7 @@ test('Business creation, validation, and existing routes', async (t) => {
     controllers: [BusinessesController],
     providers: [
       BusinessesService,
+      ProductAccessService,
       { provide: PrismaService, useValue: prisma },
     ],
   }).compile();

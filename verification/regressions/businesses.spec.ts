@@ -6,6 +6,11 @@ import { BusinessesModule } from '../../src/businesses/businesses.module';
 import { HttpExceptionFilter } from '../../src/common/errors/http-exception.filter';
 import { DayOfWeek, Prisma } from '../../src/generated/prisma/client';
 import { PrismaService } from '../../src/prisma/prisma.service';
+import { AppModule } from '../../src/app.module';
+import { BusinessesService } from '../../src/businesses/businesses.service';
+import { ProductAccessService } from '../../src/products/product-access.service';
+import { ProductsModule } from '../../src/products/products.module';
+import { JwtService } from '@nestjs/jwt';
 
 describe('Business profile/settings/working hours HTTP API (stateful mocked persistence)', () => {
   const id = 'c06a904b-14a7-4de7-98c9-9cac5bb4559b';
@@ -162,6 +167,13 @@ describe('Business profile/settings/working hours HTTP API (stateful mocked pers
       'statusCode',
     ]);
     expect(JSON.stringify(response.body)).not.toMatch(/private|SQL/);
+    if (code === 'BUSINESS_NOT_FOUND')
+      expect(response.body).toEqual({
+        statusCode: 404,
+        code,
+        message: 'Business not found',
+        error: 'Not Found',
+      });
   }
   it('returns only profile fields and preserves owner language', async () => {
     businesses[0].name = 'اسم النشاط';
@@ -255,6 +267,52 @@ describe('Business profile/settings/working hours HTTP API (stateful mocked pers
       .expect(200);
     expect(other.body).toEqual({ businessId: otherId, ...defaults });
   });
+  it.each(['settings get', 'settings patch', 'hours get', 'hours put'])(
+    'uses exactly one root ID-only existence query before %s',
+    async (operation) => {
+      const http = request(app.getHttpServer());
+      if (operation === 'settings get')
+        await http.get(path + '/settings').expect(200);
+      else if (operation === 'settings patch')
+        await http
+          .patch(path + '/settings')
+          .send({ acceptsCash: false })
+          .expect(200);
+      else if (operation === 'hours get')
+        await http.get(path + '/working-hours').expect(200, []);
+      else
+        await http
+          .put(path + '/working-hours')
+          .send(week())
+          .expect(200);
+      expect(prisma.business.findUnique).toHaveBeenCalledTimes(1);
+      expect(prisma.business.findUnique).toHaveBeenCalledWith({
+        where: { id },
+        select: { id: true },
+      });
+      const next =
+        operation === 'settings get'
+          ? prisma.businessSettings.findUnique
+          : operation === 'settings patch'
+            ? prisma.businessSettings.upsert
+            : operation === 'hours get'
+              ? prisma.workingHour.findMany
+              : prisma.$transaction;
+      expect(
+        prisma.business.findUnique.mock.invocationCallOrder[0],
+      ).toBeLessThan(next.mock.invocationCallOrder[0]);
+      if (operation === 'hours put') {
+        expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+        expect(prisma.$transaction.mock.calls[0]).toEqual([
+          expect.any(Function),
+        ]);
+        expect(tx.workingHour.upsert).toHaveBeenCalledTimes(7);
+        expect(prisma.$transaction.mock.invocationCallOrder[0]).toBeLessThan(
+          tx.workingHour.upsert.mock.invocationCallOrder[0],
+        );
+      } else expect(prisma.$transaction).not.toHaveBeenCalled();
+    },
+  );
   it.each([
     {},
     { acceptsCash: null },
@@ -273,6 +331,8 @@ describe('Business profile/settings/working hours HTTP API (stateful mocked pers
       'VALIDATION_ERROR',
     );
     expect(settings).toEqual([]);
+    expect(prisma.business.findUnique).not.toHaveBeenCalled();
+    expect(prisma.businessSettings.upsert).not.toHaveBeenCalled();
   });
   it('GET hours starts empty; PUT upserts all seven days in weekday order and replaces values without replacing IDs', async () => {
     await request(app.getHttpServer())
@@ -378,6 +438,7 @@ describe('Business profile/settings/working hours HTTP API (stateful mocked pers
     );
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(hours).toEqual([]);
+    expect(prisma.business.findUnique).not.toHaveBeenCalled();
   });
   it('rolls back a multi-row schedule if one upsert fails', async () => {
     const initial = week();
@@ -436,25 +497,117 @@ describe('Business profile/settings/working hours HTTP API (stateful mocked pers
       await expectCode(call(missingId), 404, 'BUSINESS_NOT_FOUND');
       await expectCode(call('invalid'), 400, 'VALIDATION_ERROR');
       expect(prisma.businessSettings.upsert).not.toHaveBeenCalled();
+      expect(prisma.businessSettings.findUnique).not.toHaveBeenCalled();
+      expect(prisma.workingHour.findMany).not.toHaveBeenCalled();
+      expect(tx.workingHour.upsert).not.toHaveBeenCalled();
       expect(prisma.$transaction).not.toHaveBeenCalled();
+      if (endpoint.startsWith('settings') || endpoint.startsWith('hours')) {
+        expect(prisma.business.findUnique).toHaveBeenCalledTimes(1);
+        expect(prisma.business.findUnique).toHaveBeenCalledWith({
+          where: { id: missingId },
+          select: { id: true },
+        });
+      }
     },
   );
-  it('maps a business deleted before settings/hour writes to BUSINESS_NOT_FOUND', async () => {
-    prisma.businessSettings.upsert.mockRejectedValue(error('P2003'));
-    await expectCode(
-      request(app.getHttpServer())
-        .patch(path + '/settings')
-        .send({ acceptsCash: false }),
-      404,
-      'BUSINESS_NOT_FOUND',
+  it.each(['P2003', 'P2025'])(
+    'maps %s before settings/hour writes to BUSINESS_NOT_FOUND',
+    async (code) => {
+      prisma.businessSettings.upsert.mockRejectedValue(error(code));
+      await expectCode(
+        request(app.getHttpServer())
+          .patch(path + '/settings')
+          .send({ acceptsCash: false }),
+        404,
+        'BUSINESS_NOT_FOUND',
+      );
+      tx.workingHour.upsert.mockRejectedValue(error(code));
+      await expectCode(
+        request(app.getHttpServer())
+          .put(path + '/working-hours')
+          .send(week()),
+        404,
+        'BUSINESS_NOT_FOUND',
+      );
+    },
+  );
+  it('compiles the real application, uses the exported access service, and retains owner authorization', async () => {
+    const authPrisma = {
+      ...prisma,
+      user: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: otherId, authVersion: 0 }),
+      },
+      authSession: {
+        findUnique: jest.fn().mockResolvedValue({
+          userId: otherId,
+          expiresAt: new Date('2099-01-01'),
+          revokedAt: null,
+        }),
+      },
+      businessMember: {
+        findUnique: jest.fn(async ({ where }) =>
+          where.userId_businessId.businessId === id
+            ? { role: 'OWNER', isActive: true }
+            : null,
+        ),
+      },
+    };
+    const module = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(PrismaService)
+      .useValue(authPrisma)
+      .compile();
+    const access = module
+      .select(ProductsModule)
+      .get(ProductAccessService, { strict: true });
+    expect(
+      module.select(BusinessesModule).get(BusinessesService, { strict: true }),
+    ).toBeInstanceOf(BusinessesService);
+    const guarded = module.createNestApplication({ logger: false });
+    guarded.useGlobalFilters(
+      new HttpExceptionFilter(guarded.get(HttpAdapterHost)),
     );
-    tx.workingHour.upsert.mockRejectedValue(error('P2003'));
-    await expectCode(
-      request(app.getHttpServer())
-        .put(path + '/working-hours')
-        .send(week()),
-      404,
-      'BUSINESS_NOT_FOUND',
-    );
+    const spy = jest.spyOn(access, 'business');
+    try {
+      await guarded.init();
+      const token = await module
+        .get(JwtService)
+        .signAsync({ sub: otherId, sid: otherId, ver: 0 });
+      const response = await request(guarded.getHttpServer())
+        .get(path + '/settings')
+        .auth(token, { type: 'bearer' })
+        .expect(200);
+      expect(response.body).toEqual({ businessId: id, ...defaults });
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith(id);
+      expect(authPrisma.businessMember.findUnique).toHaveBeenCalledWith({
+        where: { userId_businessId: { userId: otherId, businessId: id } },
+        select: { role: true, isActive: true },
+      });
+      jest.clearAllMocks();
+      for (const suffix of ['', '/settings', '/working-hours']) {
+        await request(guarded.getHttpServer())
+          .get(path + suffix)
+          .expect(401);
+        const hidden = await request(guarded.getHttpServer())
+          .get(`/businesses/${otherId}${suffix}`)
+          .auth(token, { type: 'bearer' })
+          .expect(404);
+        expect(hidden.body).toEqual({
+          statusCode: 404,
+          code: 'NOT_FOUND',
+          message: 'Resource not found',
+          error: 'Not Found',
+        });
+      }
+      expect(spy).not.toHaveBeenCalled();
+      expect(prisma.business.findUnique).not.toHaveBeenCalled();
+      expect(prisma.businessSettings.findUnique).not.toHaveBeenCalled();
+      expect(prisma.workingHour.findMany).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+      await guarded.close();
+    }
   });
 });
