@@ -20,6 +20,7 @@ describe('Products is the sole product CRUD API (real application modules)', () 
     $transaction: jest.fn(),
     $queryRaw: jest.fn(),
     business: { findUnique: jest.fn() },
+    category: { findFirst: jest.fn() },
     product: {
       create: jest.fn(),
       findFirst: jest.fn(),
@@ -196,6 +197,201 @@ describe('Products is the sole product CRUD API (real application modules)', () 
         skip: 0,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       }),
+    );
+    expect(prisma.product.count).toHaveBeenCalledWith({
+      where: { businessId },
+    });
+    expect(prisma.category.findFirst).not.toHaveBeenCalled();
+  });
+  describe('optional category filtering', () => {
+    const categoryId = '33333333-3333-4333-8333-333333333333';
+    const emptyCategoryId = '44444444-4444-4444-8444-444444444444';
+    const foreignCategoryId = '55555555-5555-4555-8555-555555555555';
+    const missingCategoryId = '66666666-6666-4666-8666-666666666666';
+    const secondId = '77777777-7777-4777-8777-777777777777';
+    beforeEach(() => {
+      const categories = [
+        { id: categoryId, businessId },
+        { id: emptyCategoryId, businessId },
+        { id: foreignCategoryId, businessId: otherBusiness },
+      ];
+      prisma.category.findFirst.mockImplementation(
+        async ({ where }) =>
+          categories.find(
+            (c) => c.id === where.id && c.businessId === where.businessId,
+          ) ?? null,
+      );
+      const products = [
+        { ...responseRow(), categoryId, createdAt: new Date('2026-01-02') },
+        {
+          ...responseRow(),
+          id: secondId,
+          categoryId,
+          isActive: false,
+          createdAt: new Date('2026-01-01'),
+        },
+        { ...responseRow(), id: emptyCategoryId, categoryId: null },
+        {
+          ...responseRow(),
+          id: foreignCategoryId,
+          businessId: otherBusiness,
+          categoryId: foreignCategoryId,
+        },
+      ];
+      const matching = (where: { businessId: string; categoryId?: string }) =>
+        products.filter(
+          (p) =>
+            p.businessId === where.businessId &&
+            (where.categoryId === undefined ||
+              p.categoryId === where.categoryId),
+        );
+      prisma.product.count.mockImplementation(
+        async ({ where }) => matching(where).length,
+      );
+      prisma.product.findMany.mockImplementation(
+        async ({ where, skip, take }) =>
+          matching(where).slice(skip, skip + take),
+      );
+    });
+    it('keeps categorized and uncategorized products in the unfiltered business list', async () => {
+      const response = await request(app.getHttpServer()).get(base).expect(200);
+      expect(response.body.items.map((p: { id: string }) => p.id)).toEqual([
+        id,
+        secondId,
+        emptyCategoryId,
+      ]);
+      expect(response.body.pagination.totalCount).toBe(3);
+      expect(prisma.category.findFirst).not.toHaveBeenCalled();
+      expect(prisma.product.count).toHaveBeenCalledWith({
+        where: { businessId },
+      });
+    });
+    it('filters both rows and count by the owned category and business without excluding inactive products', async () => {
+      const response = await request(app.getHttpServer())
+        .get(base)
+        .query({ categoryId })
+        .expect(200);
+      expect(response.body.items.map((p: { id: string }) => p.id)).toEqual([
+        id,
+        secondId,
+      ]);
+      expect(response.body.pagination).toEqual({
+        limit: 20,
+        offset: 0,
+        totalCount: 2,
+        hasMore: false,
+        nextOffset: null,
+      });
+      expect(prisma.category.findFirst).toHaveBeenCalledWith({
+        where: { id: categoryId, businessId },
+        select: { id: true },
+      });
+      expect(prisma.product.count).toHaveBeenCalledWith({
+        where: { businessId, categoryId },
+      });
+      expect(prisma.product.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { businessId, categoryId },
+          take: 20,
+          skip: 0,
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        }),
+      );
+      expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+        isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+      });
+    });
+    it('returns an empty page for an owned category without products', async () => {
+      const response = await request(app.getHttpServer())
+        .get(base)
+        .query({ categoryId: emptyCategoryId })
+        .expect(200);
+      expect(response.body).toEqual({
+        pagination: {
+          limit: 20,
+          offset: 0,
+          totalCount: 0,
+          hasMore: false,
+          nextOffset: null,
+        },
+        items: [],
+      });
+      expect(prisma.product.count).toHaveBeenCalledWith({
+        where: { businessId, categoryId: emptyCategoryId },
+      });
+      expect(prisma.product.findMany).not.toHaveBeenCalled();
+    });
+    it.each([
+      'not-a-uuid',
+      '',
+      'null',
+      `${categoryId}&categoryId=${emptyCategoryId}`,
+    ])(
+      'rejects invalid or repeated category UUID query values: %s',
+      async (value) => {
+        const response = await request(app.getHttpServer())
+          .get(`${base}?categoryId=${value}`)
+          .expect(400);
+        expect(response.body.code).toBe('VALIDATION_ERROR');
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+      },
+    );
+    it.each([missingCategoryId, foreignCategoryId])(
+      'returns the same scoped 404 for nonexistent or foreign category %s',
+      async (categoryId) => {
+        const response = await request(app.getHttpServer())
+          .get(base)
+          .query({ categoryId })
+          .expect(404);
+        expect(response.body).toEqual({
+          statusCode: 404,
+          code: 'CATEGORY_NOT_FOUND',
+          message: 'Category not found',
+          error: 'Not Found',
+        });
+        expect(prisma.category.findFirst).toHaveBeenCalledWith({
+          where: { id: categoryId, businessId },
+          select: { id: true },
+        });
+        expect(prisma.product.count).not.toHaveBeenCalled();
+        expect(prisma.product.findMany).not.toHaveBeenCalled();
+      },
+    );
+    it.each([
+      [0, [id], true, 1],
+      [1, [secondId], false, null],
+      [2, [], false, null],
+      [99, [], false, null],
+    ])(
+      'paginates within the category at offset %s',
+      async (offset, ids, hasMore, nextOffset) => {
+        const response = await request(app.getHttpServer())
+          .get(base)
+          .query({ categoryId, limit: 1, offset })
+          .expect(200);
+        expect(response.body.items.map((p: { id: string }) => p.id)).toEqual(
+          ids,
+        );
+        expect(response.body.pagination).toEqual({
+          limit: 1,
+          offset,
+          totalCount: 2,
+          hasMore,
+          nextOffset,
+        });
+        expect(prisma.product.count).toHaveBeenCalledWith({
+          where: { businessId, categoryId },
+        });
+        if (offset < 2)
+          expect(prisma.product.findMany).toHaveBeenCalledWith(
+            expect.objectContaining({
+              where: { businessId, categoryId },
+              take: 1,
+              skip: offset,
+            }),
+          );
+        else expect(prisma.product.findMany).not.toHaveBeenCalled();
+      },
     );
   });
   it('assigns, preserves and explicitly clears a manual product import identity through Products', async () => {

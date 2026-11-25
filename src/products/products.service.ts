@@ -1,7 +1,7 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { ErrorCode } from '../common/errors/error-code';
 import { createPagination } from '../common/pagination/pagination';
-import { PaginationQueryDto } from '../common/pagination/pagination-query.dto';
+import { ListProductsDto } from './dto/list-products.dto';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
@@ -91,11 +91,17 @@ export class ProductsService {
     }
   }
 
-  list(businessId: string, page: PaginationQueryDto) {
+  list(businessId: string, page: ListProductsDto) {
     return this.prisma.$transaction(
       async (tx) => {
         await this.access.business(businessId, tx);
-        const where = { businessId };
+        await this.access.category(businessId, page.categoryId, tx);
+        const where = {
+          businessId,
+          ...(page.categoryId !== undefined
+            ? { categoryId: page.categoryId }
+            : {}),
+        };
         const totalCount = await tx.product.count({ where });
         const products =
           page.offset >= totalCount

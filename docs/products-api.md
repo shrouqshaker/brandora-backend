@@ -58,6 +58,42 @@ protects concurrent reference/delete races. No products are deleted or detached.
 
 ## Products
 
+GET `/businesses/:businessId/products` accepts an optional `categoryId` UUID query
+parameter alongside `limit` and `offset`. Omit it to list all products in the
+business, including uncategorized products. When supplied, it must identify a
+Category in that business; both items and totalCount use the same business and
+category filter. Active and inactive products remain included, with the existing
+sorting, pagination, response shape and repeatable-read snapshot.
+
+Request examples (send `Authorization: Bearer <access-token>`):
+
+```http
+GET /businesses/f6bc7287-3285-4e19-a819-459c41f0a138/products
+GET /businesses/f6bc7287-3285-4e19-a819-459c41f0a138/products?categoryId=33333333-3333-4333-8333-333333333333
+GET /businesses/f6bc7287-3285-4e19-a819-459c41f0a138/products?categoryId=33333333-3333-4333-8333-333333333333&limit=10&offset=10
+```
+
+An owned category containing no products returns HTTP 200:
+
+```json
+{
+  "pagination": {
+    "limit": 20,
+    "offset": 0,
+    "totalCount": 0,
+    "hasMore": false,
+    "nextOffset": null
+  },
+  "items": []
+}
+```
+
+Invalid, empty or repeated category UUID values return HTTP 400
+`VALIDATION_ERROR`. A nonexistent category or one belonging to another business
+returns the same HTTP 404 `CATEGORY_NOT_FOUND` response. This filter uses the
+linked Category ID, not the legacy `category` string; it does not add an
+uncategorized-only filter.
+
 POST requires name; PATCH supports partial updates with at least one field:
 
 | Field       | Input and update behavior                                                                                                       |

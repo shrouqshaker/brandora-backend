@@ -12,7 +12,7 @@ import {
   Query,
   UseInterceptors,
 } from '@nestjs/common';
-import { PaginationQueryDto } from '../common/pagination/pagination-query.dto';
+import { ListProductsDto } from './dto/list-products.dto';
 import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
 import { ProductsService } from './products.service';
 import { ProductJsonBoundaryInterceptor } from './product-json.interceptor';
@@ -32,7 +32,7 @@ export class ProductsController {
   @Get()
   list(
     @Param('businessId', new ParseUUIDPipe()) businessId: string,
-    @Query() page: PaginationQueryDto,
+    @Query() page: ListProductsDto,
   ) {
     return this.products.list(businessId, page);
   }
