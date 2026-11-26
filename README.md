@@ -1,69 +1,42 @@
-# Brandora Backend
+# Brandora AI
 
-NestJS API for owner-managed businesses, products, variants, inventory and Excel
-imports. The Backend owns authorization and data; the FastAPI AI service lives
-in a separate repository and is deployed independently by Malak.
+FastAPI service that answers WhatsApp customers in Egyptian Arabic. It is **read-only**:
+it never writes to the database, never calls WhatsApp and never creates orders
+(`orderCandidate` is always `null`; purchases are reported as `PURCHASE_INTENT`).
 
-## Stack
-
-TypeScript / NestJS, Prisma, PostgreSQL and Brevo HTTPS. Node.js >=22.12 is
-required; compiled application modules use CommonJS.
-
-## Implemented features
-
-- JWT authentication, rotating sessions and business OWNER authorization.
-- Business profiles, settings, working hours and categories.
-- Canonical Products CRUD, dynamic variants and variant-level inventory.
-- Excel analysis, mapping, validation, preview and execution.
-- Brevo email OTP recovery with HMAC-protected, expiring single-use codes.
-
-## Local setup
-
-```sh
-npm ci
+```
+Backend (NestJS + Neon)  --POST /v2/ai/respond-->  AI  --POST /internal/ai/data-->  Backend
+   signs JWT (RS256), 5-field body                  reads products + history, calls GroqCloud
 ```
 
-Create a private `.env` from `.env.example` if one does not already exist.
-Configure a local `DATABASE_URL` and the JWT settings in the
-[local setup guide](docs/local-development.md). Keep secrets out of Git and
-review database compatibility before applying existing migrations.
+Canonical route: `POST /v2/ai/respond`. Contract: Backend `docs/ai-contract.md`
+(+ [FINAL_BACKEND_AI_HANDOFF](docs/FINAL_BACKEND_AI_HANDOFF.md)). LLM provider: **GroqCloud**
+(`GROQ_API_KEY`); without a key the service answers with deterministic Python rules.
 
-```sh
-npm run build
-npm run start:dev
+## Quick start
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
+make verify                                   # compile + 1598 tests + offline evaluation
+GROQ_API_KEY=... python tools/test_groq_live.py
 ```
 
-Use `npm run start:prod` for the compiled application. Existing Railway Dashboard
-build/start settings remain authoritative; see the
-[release checklist](docs/railway-release-readiness.md).
+Full step-by-step (Groq, Backend on Neon, end-to-end): **[docs/TESTING_GUIDE_AR.md](docs/TESTING_GUIDE_AR.md)**.
 
-## Verification
+## Layout
 
-```sh
-npm test
-```
+| Path | What |
+|---|---|
+| `app/clients`, `app/data` | Backend tool client (6 read-only tools) and retrieval |
+| `app/chat`, `app/pipeline`, `app/prompts`, `app/providers` | understanding, evidence guard, Groq reply composition |
+| `app/products_api.py`, `app/conversation_api.py` | authenticated `/v2/ai/*` routes |
+| `app/local.py` | loopback runner for local Backend tests (`rules` or `groq`) |
+| `app/server.py` | Railway launcher (`python -m app.server`) |
+| `tools/` | `gen_dev_keys.py`, `check_setup.py`, `test_groq_live.py`, `e2e_whatsapp.py` |
+| `tests/` | 1598 offline tests (no network, no keys) |
+| `docs/` | Arabic guides, handoff, Railway readiness, Backend health patch |
 
-See [verification commands](verification/README.md) for isolated database tests
-and [recorded results](docs/local-verification.md) for their scope and limits.
-
-## AI integration status
-
-The local loopback harness supports independent synthetic messages against real
-local product data. Production integration remains disabled until authorized
-conversation persistence and end-to-end acceptance are ready. Live Groq and
-production email delivery require separate verification. Product images use
-Cloudinary with server-side credentials; see [image setup](docs/product-images.md).
-Image recognition, Orders and permanent Excel file storage remain deferred.
-
-## Documentation
-
-- [Authentication and recovery](docs/auth-api.md)
-- [Business API](docs/business-api.md)
-- [Products and variants](docs/products-api.md)
-- [Inventory](docs/inventory-api.md) / [Excel imports](docs/imports-api.md)
-- [AI security and contracts](docs/ai-integration.md)
-- [Local AI / Postman testing](docs/ai-local-testing.md)
-- [Orders](docs/orders-api.md)
-- [WhatsApp webhook and sending](docs/whatsapp-api.md)
-- [Railway proxy security](docs/railway-proxy-security.md)
-- [Shared error contract](docs/api-errors.md)
+`.env.example` documents every variable; never commit `.env.local`.
+Status: verified offline and cross-checked against the Backend's token signing; live Groq and
+Neon runs are done by you with the guide above.
