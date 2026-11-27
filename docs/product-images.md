@@ -30,9 +30,10 @@ For P = /businesses/:businessId/products/:productId:
 | DELETE P/images/:imageId | 200 { deleted: true, cleanupPending }; retry pending cleanup with the same ID                                 |
 
 Existing owner JWT and active membership are required. Wrong Business/Product/image
-IDs return 404. Files are memory-buffered, at most 5 MiB each, matching JPEG/PNG/
+IDs return 404. Files are memory-buffered, at most 10 MB (10,000,000 bytes) each, matching JPEG/PNG/
 WebP MIME and magic bytes. SVG, arbitrary URLs, Cloudinary IDs and image attributes
-are rejected. Maximum batch buffering is five files (25 MiB). Cloudinary must
+are rejected. Maximum batch file content is five files (50 MB), excluding multipart
+and runtime overhead. Cloudinary must
 return validated image metadata, with positive dimensions and at most 25 million
 pixels. Remote requests keep their 30-second deadline and 64 KiB response bound.
 

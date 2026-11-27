@@ -943,7 +943,7 @@ colorOptionName for image handling. Legacy colorOptionName is metadata only.
 
 Upload one multipart file, or repeated files parts for an atomic batch. The Backend
 rejects the whole batch if it exceeds free slots. Every file remains JPEG/PNG/WebP
-and at most 5 MiB. PATCH the image collection with every active imageIds entry in
+and at most 10 MB (10,000,000 bytes). PATCH the image collection with every active imageIds entry in
 desired order, or PATCH /images/:imageId with {isMain:true}. Refresh the returned
 order after changes/deletion. Cloudinary credentials remain server-side.
 

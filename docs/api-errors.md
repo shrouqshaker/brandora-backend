@@ -148,7 +148,7 @@ Product image management uses these stable codes (see [Product images](product-i
 | HTTP      | Code                        | Meaning / Android action                                                                                                                          |
 | --------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 400       | `PRODUCT_IMAGE_INVALID`     | Invalid file/type, forbidden attributes, more than five occupied image slots, oversized batch or invalid order; correct input or refresh gallery. |
-| 413       | `PRODUCT_IMAGE_TOO_LARGE`   | Image exceeds 5 MiB; reduce size. This is separate from Excel's 10 MiB limit.                                                                     |
+| 413       | `PRODUCT_IMAGE_TOO_LARGE`   | Image exceeds 10 MB (10,000,000 bytes); reduce size. Excel has its own separate 10 MiB limit.                                                     |
 | 404       | `PRODUCT_IMAGE_NOT_FOUND`   | Image does not belong to the scoped Product/Business or no longer exists.                                                                         |
 | 503 / 502 | `PRODUCT_IMAGE_UNAVAILABLE` | Missing provider configuration (503), or rejected/failed/timed-out provider request or invalid acceptance metadata (502).                         |
 

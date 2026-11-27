@@ -200,7 +200,7 @@ Product responses include an ordered images gallery: at most five per Product
 across all Variants. position=0/isMain=true identifies Main. Do not switch photos
 when Color, Size, Weight or Variant selection changes. Use owner JWT with POST
 multipart file, or repeated files for an atomic 1-5-image batch (JPEG/PNG/WebP,
-5 MiB each); no optionName/optionValue. PATCH /images/:imageId with {isMain:true}
+10 MB / 10,000,000 bytes each); no optionName/optionValue. PATCH /images/:imageId with {isMain:true}
 changes Main; PATCH /images with every imageIds entry in desired order reorders
 and makes the first Main. DELETE promotes the first remaining image; refresh GET.
 Empty items uses a placeholder. Cloudinary credentials stay in Backend.

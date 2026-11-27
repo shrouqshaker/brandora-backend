@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { ErrorCode } from '../../common/errors/error-code';
 import { fail } from '../product-access.service';
 
-export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export const MAX_IMAGE_BYTES = 10_000_000;
 export const CLOUDINARY_TIMEOUT_MS = 30000;
 export interface ImageAsset {
   secureUrl: string;
@@ -26,7 +26,7 @@ export function imageFile(file: Express.Multer.File | undefined) {
     fail(
       ErrorCode.PRODUCT_IMAGE_TOO_LARGE,
       HttpStatus.PAYLOAD_TOO_LARGE,
-      'Image exceeds 5 MB',
+      'Image exceeds 10 MB',
     );
   const jpg = b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
   const png =

@@ -109,6 +109,19 @@ describe('Cloudinary signed HTTPS transport (no network)', () => {
     ).rejects.toMatchObject({ code: 'PRODUCT_IMAGE_UNAVAILABLE' });
   });
 
+  it('accepts provider metadata at the 10 MB boundary', async () => {
+    jest
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        new Response(JSON.stringify({ ...metadata, bytes: 10_000_000 })),
+      );
+    await expect(
+      cloud().upload(publicId, imageFile(file())),
+    ).resolves.toMatchObject({
+      bytes: 10_000_000,
+    });
+  });
+
   it('sanitizes provider errors without reading their body', async () => {
     const json = jest.fn();
     jest
@@ -360,6 +373,46 @@ describe('Product image HTTP contract with real owner guard and mocked persisten
       .expect(400);
     expect(f.cloud.upload).toHaveBeenCalledTimes(5);
   });
+  it.each([
+    { field: 'file', bytes: 5 * 1024 * 1024 + 1 },
+    { field: 'file', bytes: 9_999_999 },
+    { field: 'file', bytes: 10_000_000 },
+    { field: 'files', bytes: 10_000_000 },
+  ])('accepts $field multipart with $bytes bytes', async ({ field, bytes }) => {
+    const buffer = Buffer.alloc(bytes);
+    file().buffer.copy(buffer);
+    await request(app.getHttpServer())
+      .post(url)
+      .set('Authorization', `Bearer ${owner}`)
+      .attach(field, buffer, {
+        filename: 'large.jpg',
+        contentType: 'image/jpeg',
+      })
+      .expect(201);
+    expect(f.cloud.upload).toHaveBeenCalledTimes(1);
+    expect(f.cloud.upload.mock.calls[0][1].buffer.length).toBe(bytes);
+  });
+  it.each(['file', 'files'])(
+    'rejects %s above 10 MB before persistence or Cloudinary',
+    async (field) => {
+      const buffer = Buffer.alloc(10_000_001);
+      file().buffer.copy(buffer);
+      const response = await request(app.getHttpServer())
+        .post(url)
+        .set('Authorization', `Bearer ${owner}`)
+        .attach(field, buffer, {
+          filename: 'oversized.jpg',
+          contentType: 'image/jpeg',
+        })
+        .expect(413);
+      expect(response.body).toMatchObject({
+        code: 'PRODUCT_IMAGE_TOO_LARGE',
+        message: 'Image exceeds 10 MB',
+      });
+      expect(f.cloud.upload).not.toHaveBeenCalled();
+      expect(f.rows).toEqual([]);
+    },
+  );
   it('requires an authenticated owner and hides another Business', async () => {
     await request(app.getHttpServer()).get(url).expect(401);
     await request(app.getHttpServer())
@@ -467,9 +520,17 @@ describe('Product Main/Gallery policy and compensating cleanup (no database/netw
   ])('rejects missing/spoofed file %#', (value) =>
     expect(() => imageFile(value)).toThrow(),
   );
-  it('keeps the 5 MiB limit', () =>
+  it.each([5 * 1024 * 1024 + 1, 10_000_000])(
+    'accepts a valid image with %i bytes',
+    (bytes) => {
+      const buffer = Buffer.alloc(bytes);
+      file().buffer.copy(buffer);
+      expect(imageFile(file(buffer)).buffer.length).toBe(bytes);
+    },
+  );
+  it('rejects one byte above the 10 MB limit', () =>
     expect(() => imageFile(file(Buffer.alloc(MAX_IMAGE_BYTES + 1)))).toThrow(
-      '5 MB',
+      '10 MB',
     ));
   it('makes the first upload Main without options or Variants, and appends galleries', async () => {
     const f = fixture();

@@ -82,7 +82,7 @@ Set Main/reorder preserve relative order as specified; deleting Main promotes
 the first remaining image. Images do not follow Variant/color selection.
 colorOptionName and optionName/optionValue in responses are legacy metadata.
 
-Uploads accept JPEG/PNG/WebP MIME and magic bytes, at most 5 MiB per file and
+Uploads accept JPEG/PNG/WebP MIME and magic bytes, at most 10 MB (10,000,000 bytes) per file and
 five files per batch. Do not mix the single `file` and repeated `files` multipart
 forms. Every file is checked before reservation. ACTIVE and UPLOADING count
 toward the five-image application limit under the scoped Product lock.

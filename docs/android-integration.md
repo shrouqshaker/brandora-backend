@@ -78,7 +78,7 @@ Images are Product Main/Gallery images, not Variant/color selectors. The first
 ordered image is Main; apply returned ordering after Set Main/reorder and refresh
 after deletion/promotion. Use a placeholder for no images. Upload either file or
 1–5 repeated files parts, never both; let the library set the multipart boundary.
-Files are JPEG/PNG/WebP, at most 5 MiB each and five occupied slots per Product.
+Files are JPEG/PNG/WebP, at most 10 MB (10,000,000 bytes) each and five occupied slots per Product.
 cleanupPending retains recoverable metadata; retry the same scoped DELETE.
 Do not assume every failed upload rolled back a possibly committed asset.
 

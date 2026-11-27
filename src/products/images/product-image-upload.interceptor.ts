@@ -20,7 +20,8 @@ export class ProductImageUploadInterceptor extends FileFieldsInterceptor(
   {
     storage: memoryStorage(),
     limits: {
-      fileSize: MAX_IMAGE_BYTES,
+      // Multer rejects at equality; allow the inclusive imageFile byte limit.
+      fileSize: MAX_IMAGE_BYTES + 1,
       files: 5,
       fields: 0,
       parts: 5,
@@ -39,7 +40,7 @@ export class ProductImageUploadInterceptor extends FileFieldsInterceptor(
         fail(
           ErrorCode.PRODUCT_IMAGE_TOO_LARGE,
           HttpStatus.PAYLOAD_TOO_LARGE,
-          'Image exceeds 5 MB',
+          'Image exceeds 10 MB',
         );
       if (
         error instanceof HttpException &&
