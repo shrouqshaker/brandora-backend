@@ -18,6 +18,7 @@ const profileSelect = {
   category: true,
   phone: true,
   address: true,
+  logoUrl: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.BusinessSelect;
@@ -27,12 +28,20 @@ const settingsSelect = {
   acceptsOnlinePayment: true,
   deliveryEnabled: true,
   pickupEnabled: true,
+  returnPolicy: true,
+  paymentNotes: true,
+  deliveryNotes: true,
+  deliveryFee: true,
 } satisfies Prisma.BusinessSettingsSelect;
 const settingsDefaults = {
   acceptsCash: true,
   acceptsOnlinePayment: false,
   deliveryEnabled: false,
   pickupEnabled: true,
+  returnPolicy: null,
+  paymentNotes: null,
+  deliveryNotes: null,
+  deliveryFee: null,
 };
 const weekdays = Object.values(DayOfWeek);
 
@@ -116,12 +125,17 @@ export class BusinessesService {
 
   async settings(id: string) {
     await this.access.business(id);
-    return (
-      (await this.prisma.businessSettings.findUnique({
-        where: { businessId: id },
-        select: settingsSelect,
-      })) ?? { businessId: id, ...settingsDefaults }
-    );
+    const settings = (await this.prisma.businessSettings.findUnique({
+      where: { businessId: id },
+      select: settingsSelect,
+    })) ?? { businessId: id, ...settingsDefaults };
+    return {
+      ...settings,
+      deliveryFee:
+        settings.deliveryFee == null
+          ? null
+          : new Prisma.Decimal(settings.deliveryFee).toFixed(2),
+    };
   }
 
   async updateSettings(id: string, dto: UpdateBusinessSettingsDto) {
@@ -129,12 +143,19 @@ export class BusinessesService {
     this.requirePatch(data);
     await this.access.business(id);
     try {
-      return await this.prisma.businessSettings.upsert({
+      const settings = await this.prisma.businessSettings.upsert({
         where: { businessId: id },
         create: { businessId: id, ...settingsDefaults, ...data },
         update: data,
         select: settingsSelect,
       });
+      return {
+        ...settings,
+        deliveryFee:
+          settings.deliveryFee == null
+            ? null
+            : new Prisma.Decimal(settings.deliveryFee).toFixed(2),
+      };
     } catch (error) {
       this.handleMissing(error);
     }

@@ -17,6 +17,6 @@ import { ProductImagesController } from './images/product-images.controller';
     CloudinaryService,
     ProductImagesService,
   ],
-  exports: [ProductAccessService, ProductsService],
+  exports: [ProductAccessService, ProductsService, CloudinaryService],
 })
 export class ProductsModule {}

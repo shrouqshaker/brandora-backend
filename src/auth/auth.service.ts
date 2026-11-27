@@ -11,6 +11,8 @@ import {
   RegisterDto,
   ForgotPasswordDto,
   ResetPasswordDto,
+  UpdateAccountDto,
+  ChangePasswordDto,
 } from './auth.dto';
 import { AuthSessionsService, lockUser } from './auth-sessions.service';
 import { PasswordResetMailer } from './password-reset.mailer';
@@ -254,12 +256,96 @@ export class AuthService implements OnModuleInit {
       this.passwordWorkers--;
     }
   }
+  async updateAccount(userId: string, dto: UpdateAccountDto) {
+    try {
+      return await this.prisma.user.update({
+        where: { id: userId },
+        data: { name: dto.name },
+        select: { id: true, email: true, name: true },
+      });
+    } catch {
+      throw new AppHttpException(
+        ErrorCode.INTERNAL_SERVER_ERROR,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        'Account update could not be completed',
+      );
+    }
+  }
+
+  async changePassword(
+    userId: string,
+    sessionId: string,
+    dto: ChangePasswordDto,
+  ) {
+    const invalid = () =>
+      new AppHttpException(
+        ErrorCode.INVALID_CREDENTIALS,
+        HttpStatus.UNAUTHORIZED,
+        'Current password is incorrect',
+      );
+    const initial = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, passwordHash: true, authVersion: true },
+    });
+    const matches = await this.passwordWork(() =>
+      argon2.verify(
+        initial?.passwordHash ?? this.dummyHash,
+        dto.currentPassword,
+      ),
+    );
+    if (!initial || !matches) throw invalid();
+    if (dto.currentPassword === dto.newPassword)
+      throw new AppHttpException(
+        ErrorCode.VALIDATION_ERROR,
+        HttpStatus.BAD_REQUEST,
+        'New password must differ from current password',
+      );
+    const passwordHash = await this.passwordWork(() =>
+      argon2.hash(dto.newPassword, hashing),
+    );
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const current = await lockUser(tx, userId);
+        const session = await tx.authSession.findUnique({
+          where: { tokenFamilyId: sessionId },
+          select: { userId: true, revokedAt: true, expiresAt: true },
+        });
+        if (
+          current.authVersion !== initial.authVersion ||
+          current.passwordHash !== initial.passwordHash ||
+          !session ||
+          session.userId !== userId ||
+          session.revokedAt ||
+          session.expiresAt <= new Date()
+        )
+          throw invalid();
+        await tx.user.update({
+          where: { id: userId },
+          data: { passwordHash, authVersion: { increment: 1 } },
+        });
+        await tx.authSession.updateMany({
+          where: { userId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        // A code issued before this change must not reset the new password.
+        await tx.passwordResetToken.deleteMany({ where: { userId } });
+      });
+    } catch (error) {
+      if (error instanceof AppHttpException) throw error;
+      throw new AppHttpException(
+        ErrorCode.INTERNAL_SERVER_ERROR,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        'Password change could not be completed',
+      );
+    }
+  }
   async me(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
         id: true,
         email: true,
+        name: true,
         memberships: {
           where: { isActive: true },
           orderBy: { createdAt: 'asc' },
@@ -279,6 +365,7 @@ export class AuthService implements OnModuleInit {
     return {
       id: user.id,
       email: user.email,
+      name: user.name ?? null,
       businesses: user.memberships.map((m) => ({
         ...m.business,
         role: m.role,

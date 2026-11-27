@@ -59,6 +59,34 @@ and ProductImage do not gain a catalogItemId field.
 
 ## Business, catalog and images
 
+### Account and Business settings screens
+
+After login, call `GET /auth/me` or page `GET /businesses` to restore server-owned
+Businesses. Select the only Business automatically, or show an explicit chooser
+when there are several. Business Create is for an actually empty account, not a
+device without a cached Business UUID.
+
+- **My account:** name/email from `GET /auth/me`; edit name using `PATCH /auth/me`.
+  Email is read-only, and there is no personal photo. For password changes call
+  `POST /auth/change-password` with currentPassword/newPassword; validate repeated
+  new password on-device. On 204, clear sessions and return to Login. Retain the
+  existing OTP recovery flow for forgotten passwords. Existing logout/logout-all
+  endpoints should be connected to the corresponding account actions.
+- **Business settings:** existing profile GET/PATCH for name, description,
+  category, phone and address. Use settings GET/PATCH for payment/delivery flags,
+  nullable returnPolicy/paymentNotes/deliveryNotes/deliveryFee. Keep price strings
+  exact; null is unspecified, not zero. Use the existing seven-day hours editor.
+  FAQs use the scoped CRUD/pagination routes documented in the Business API.
+  Store logo uses multipart PUT `.../logo` with one file; DELETE removes it;
+  profile GET exposes nullable logoUrl. Handle cleanupPending without claiming a
+  successful saved logo failed. Keep existing WhatsApp connection management
+  separate from ordinary contact-phone editing.
+
+Backend additions require the reviewed migration before deploying their code.
+They do not implement Android screens or modify the separate AI. See
+[Business settings/policies/logo](business-api.md#policies-faqs-and-store-logo-2026-11-27-implementation)
+and [Account contract](auth-api.md#account-screen-additions-2026-11-27).
+
 Business settings are preferences, not payment/delivery implementations.
 Working-hours PUT supplies all seven unique days; closed times are null/omitted,
 open times are same-day HH:mm with no timezone/overnight support.

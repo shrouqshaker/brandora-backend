@@ -9,12 +9,16 @@ datasource db {
 }
 
 model Business {
-  id                 String              @id @default(uuid()) @db.Uuid
-  name               String              @db.VarChar(200)
+  id                 String                @id @default(uuid()) @db.Uuid
+  name               String                @db.VarChar(200)
   description        String?
-  category           String?             @db.VarChar(200)
-  phone              String?             @db.VarChar(50)
-  address            String?             @db.VarChar(1000)
+  category           String?               @db.VarChar(200)
+  phone              String?               @db.VarChar(50)
+  address            String?               @db.VarChar(1000)
+  logoUrl            String?               @db.VarChar(1000)
+  logoPublicId       String?               @unique @db.VarChar(250)
+  faqs               BusinessFaq[]
+  logoCleanup        BusinessLogoCleanup[]
   settings           BusinessSettings?
   workingHours       WorkingHour[]
   products           Product[]
@@ -28,13 +32,14 @@ model Business {
   messages           Message[]
   whatsappConnection WhatsAppConnection?
   orders             Order[]
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
 }
 
 model User {
   id            String              @id @default(uuid()) @db.Uuid
   email         String              @unique @db.VarChar(254)
+  name          String?             @db.VarChar(200)
   passwordHash  String
   authVersion   Int                 @default(0)
   createdAt     DateTime            @default(now())
@@ -108,8 +113,37 @@ model BusinessSettings {
   acceptsOnlinePayment Boolean  @default(false)
   deliveryEnabled      Boolean  @default(false)
   pickupEnabled        Boolean  @default(true)
+  returnPolicy         String?  @db.VarChar(5000)
+  paymentNotes         String?  @db.VarChar(5000)
+  deliveryNotes        String?  @db.VarChar(5000)
+  deliveryFee          Decimal? @db.Decimal(12, 2)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
+}
+
+model BusinessFaq {
+  id         String   @id @default(uuid()) @db.Uuid
+  businessId String   @db.Uuid
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  question   String   @db.VarChar(300)
+  answer     String   @db.VarChar(3000)
+  position   Int      @default(0)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([businessId, position, id])
+}
+
+// Retains cleanup work after a logo replacement/provider failure. Never returned to clients.
+model BusinessLogoCleanup {
+  publicId   String   @id @db.VarChar(250)
+  businessId String   @db.Uuid
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  status     String   @default("UPLOADING") @db.VarChar(20)
+  createdAt  DateTime @default(now())
+
+  @@index([businessId, status])
 }
 
 enum DayOfWeek {

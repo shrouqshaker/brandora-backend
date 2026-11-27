@@ -87,7 +87,8 @@ function verifyRoutePolicy({ verb, route, scope, guards }) {
     expected = 'public'; // Meta: verify token (GET) and HMAC signature (POST)
   else if (verb === 'POST' && publicPaths.has(route)) expected = 'public';
   else if (
-    (route === '/auth/me' && verb === 'GET') ||
+    (route === '/auth/me' && ['GET', 'PATCH'].includes(verb)) ||
+    (route === '/auth/change-password' && verb === 'POST') ||
     (route === '/auth/logout-all' && verb === 'POST') ||
     (route === '/businesses' && ['GET', 'POST'].includes(verb))
   )
@@ -112,7 +113,7 @@ function verifyControllerInventory(routes = controllerRoutes()) {
   );
   assert.equal(
     routes.length,
-    67,
+    75,
     'Review the policy and endpoint inventory when adding routes',
   );
   const publicCount = routes.filter(

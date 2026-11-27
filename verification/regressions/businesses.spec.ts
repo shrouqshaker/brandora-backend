@@ -23,6 +23,10 @@ describe('Business profile/settings/working hours HTTP API (stateful mocked pers
     acceptsOnlinePayment: false,
     deliveryEnabled: false,
     pickupEnabled: true,
+    returnPolicy: null,
+    paymentNotes: null,
+    deliveryNotes: null,
+    deliveryFee: null,
   };
   const week = () => ({
     days: weekdays.map((dayOfWeek) => ({
@@ -87,6 +91,7 @@ describe('Business profile/settings/working hours HTTP API (stateful mocked pers
       category: 'Retail',
       phone: '123',
       address: 'Original address',
+      logoUrl: null,
       createdAt: now,
       updatedAt: now,
       internal: 'hidden',
@@ -186,6 +191,7 @@ describe('Business profile/settings/working hours HTTP API (stateful mocked pers
         'category',
         'phone',
         'address',
+        'logoUrl',
         'createdAt',
         'updatedAt',
       ].sort(),

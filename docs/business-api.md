@@ -1,6 +1,7 @@
 # Business API
 
-Creation returns HTTP 201; all seven other Business endpoints return HTTP 200.
+Business creation and FAQ creation return HTTP 201; FAQ deletion returns 204.
+Other Business/profile/settings/hours/logo operations return HTTP 200.
 Path parameters must be UUIDs. Unknown DTO body fields and list query fields are
 rejected. Errors use the Brandora `{ statusCode, code, message, error }` envelope;
 message is a string or array of strings. Use stable codes for Mobile localization.
@@ -25,6 +26,83 @@ NOT_FOUND. Knowing an ID does not claim ownership. One User may own multiple Bus
 | PUT    | `/businesses/:businessId/working-hours` | 200, all seven rows   |
 
 There is no Business DELETE, ownership-claim or membership-management endpoint here.
+
+## Policies, FAQs and store logo (2026-11-27 implementation)
+
+These additions require migration `20261127000000_add_business_policies_and_account_profile`.
+It is prepared for review, not applied to a deployed database. No AI or Android
+implementation is changed. Business profile responses add nullable `logoUrl`.
+The existing `description` stays the single store description; there is no
+duplicate `businessDescription` field or owner-supplied logo URL/provider ID.
+
+Existing settings GET/PATCH adds nullable `returnPolicy`, `paymentNotes` and
+`deliveryNotes` (owner-entered strings up to 5,000 characters each), and
+`deliveryFee` (nonnegative decimal string, up to 10 integer digits/two decimals).
+Omitted fields are preserved; null clears them. Null/empty text means no stated
+policy. Null fee means unspecified, not free delivery; `"0.00"` explicitly means
+zero fee. Fee responses always have two decimal places. Preferences do not
+implement a payment gateway, payment confirmation, delivery or automatic quotes.
+
+```json
+{
+  "returnPolicy": "الاستبدال خلال 7 أيام للقطعة غير المستخدمة.",
+  "paymentNotes": "الدفع كاش عند الاستلام.",
+  "deliveryEnabled": true,
+  "deliveryNotes": "القيمة للقاهرة فقط؛ المناطق الأخرى تحتاج تأكيدًا.",
+  "deliveryFee": "35.00"
+}
+```
+
+### Owner FAQs
+
+| Method | Path                                             | Result                      |
+| ------ | ------------------------------------------------ | --------------------------- |
+| GET    | `/businesses/:businessId/faqs?limit=20&offset=0` | 200 `{ items, pagination }` |
+| POST   | `/businesses/:businessId/faqs`                   | 201 FAQ                     |
+| PATCH  | `/businesses/:businessId/faqs/:faqId`            | 200 FAQ                     |
+| DELETE | `/businesses/:businessId/faqs/:faqId`            | 204, no body                |
+
+Create requires trimmed nonblank `question` (1–300) and `answer` (1–3,000).
+Optional `position` is an integer 0–10,000 (default 0); `isActive` defaults to true.
+PATCH preserves omitted fields and rejects empty bodies/nulls. Lists include active
+and inactive owner rows, ordered by position/UUID, with repeatable-read pagination.
+All operations require active OWNER access; mutations also scope the FAQ by
+businessId. Missing/foreign rows return 404 `BUSINESS_FAQ_NOT_FOUND` after access.
+
+```json
+{
+  "question": "هل فيه استبدال؟",
+  "answer": "الاستبدال خلال 7 أيام للقطعة غير المستخدمة.",
+  "position": 0,
+  "isActive": true
+}
+```
+
+### Store logo
+
+`PUT /businesses/:businessId/logo`: multipart **one `file` part**, no text fields.
+Matching JPEG/PNG/WebP MIME and signatures are required, max 10,000,000 bytes and
+25 million provider-verified pixels. Ownership is checked before upload handling.
+The signed Cloudinary transport is reused. Return:
+`{ "logoUrl": "https://…", "cleanupPending": false }`.
+
+`DELETE /businesses/:businessId/logo` clears the reference and returns
+`{ "logoUrl": null, "cleanupPending": false }`; repeating it retries pending
+cleanup. Replacement locks the Business while swapping references; remote calls
+never run inside the transaction. Failure before activation preserves the old
+logo and attempts compensation. Failed obsolete-asset cleanup is durably recorded;
+`cleanupPending` can be true even when the new logo is saved. No background cleanup
+worker is added. A process killed during UPLOADING leaves a reservation requiring
+operator reconciliation; do not blindly destroy an in-progress asset. No Product,
+customer, conversation or inventory data is changed by logo operations.
+
+Errors: 400 `BUSINESS_LOGO_INVALID`, 413 `BUSINESS_LOGO_TOO_LARGE`,
+503 `BUSINESS_LOGO_UNAVAILABLE`, plus existing Business authorization/404 errors.
+
+AI integration is unchanged. The existing `get_business_info` service call reads
+expanded settings, but the separate AI must support those fields before using
+them. FAQs remain owner endpoints and are not added to the AI aggregate in this
+Backend-only phase. Backend tests do not establish live policy/FAQ answering.
 
 ## Create a business
 

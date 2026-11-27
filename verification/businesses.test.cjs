@@ -33,6 +33,7 @@ test('Business creation, validation, and existing routes', async (t) => {
           category: data.category ?? null,
           phone: data.phone ?? null,
           address: data.address ?? null,
+          logoUrl: null,
           createdAt: new Date(),
           updatedAt: new Date(),
         };
@@ -112,6 +113,10 @@ test('Business creation, validation, and existing routes', async (t) => {
         acceptsOnlinePayment: false,
         deliveryEnabled: false,
         pickupEnabled: true,
+        returnPolicy: null,
+        paymentNotes: null,
+        deliveryNotes: null,
+        deliveryFee: null,
       });
     },
   );

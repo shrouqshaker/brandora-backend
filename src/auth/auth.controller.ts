@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   Post,
+  Patch,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
@@ -17,6 +18,8 @@ import {
   ForgotPasswordDto,
   ResetPasswordDto,
   EmptyAuthDto,
+  UpdateAccountDto,
+  ChangePasswordDto,
 } from './auth.dto';
 import { AuthSessionsService } from './auth-sessions.service';
 import { AuthRetryInterceptor } from './auth-retry.interceptor';
@@ -45,6 +48,21 @@ export class AuthController {
   @AuthScope('identity')
   me(@CurrentUser() user: Identity) {
     return this.auth.me(user.id);
+  }
+  @Patch('me')
+  @AuthScope('identity')
+  updateAccount(@CurrentUser() user: Identity, @Body() dto: UpdateAccountDto) {
+    return this.auth.updateAccount(user.id, dto);
+  }
+  @Post('change-password')
+  @HttpCode(204)
+  @AuthScope('identity')
+  @UseGuards(AuthRateGuard)
+  changePassword(
+    @CurrentUser() user: Identity,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return this.auth.changePassword(user.id, user.sessionId!, dto);
   }
   @Post('refresh')
   @HttpCode(200)

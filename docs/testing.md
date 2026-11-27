@@ -13,7 +13,7 @@ npm run test:businesses
 
 `npm test` builds first (`prisma generate && nest build`), then runs Jest with
 `jest.config.cjs`. Discovery is limited to `verification/`; the current inventory
-contains 37 maintained `.spec.ts`/`.spec.cjs` files. The native Business HTTP
+contains 38 maintained `.spec.ts`/`.spec.cjs` files. The native Business HTTP
 runner is invoked by a Jest adapter; its subtest count is distinct from Jest's
 adapter count. `test:businesses` runs that native runner directly after building.
 
@@ -53,6 +53,17 @@ guarded internal AI endpoint and nine public-policy endpoints. The compiled
 tool reports 58 protected including internal AI, nine public and zero mismatches.
 There are 19 committed migration directories and 20 Prisma models. These are
 repository inventories, not deployment or full-test results.
+
+The 2026-11-27 account/settings additions expand the current reviewed source and
+compiled inventory to 75 routes: 65 JWT owner/identity routes, one separately
+guarded internal AI route, and nine public routes (66 protected including AI).
+The new account/settings suite compiles the real AppModule with synthetic
+persistence/cloud providers and disables background reply recovery. It exercises
+Argon2 password changes/session revocation, owner policies, FAQ tenant isolation,
+logo replacement/compensation, upload boundaries and authorization. There are
+22 source models and 20 migration directories including the new
+migration. Schema-to-schema Prisma diff is offline; it does not test execution
+of migration SQL on PostgreSQL or authorize changing a deployed database.
 
 ## Real PostgreSQL verification
 

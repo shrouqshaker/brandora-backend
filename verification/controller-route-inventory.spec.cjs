@@ -11,10 +11,10 @@ test.each(routes)(
     verifyRoutePolicy(route);
   },
 );
-test('compiled inventory contains 67 routes, 58 protected including internal AI and nine public', () => {
+test('compiled inventory contains 75 routes, 66 protected including internal AI and nine public', () => {
   expect(verifyControllerInventory(routes)).toEqual({
-    routes: 67,
-    protected: 58,
+    routes: 75,
+    protected: 66,
     public: 9,
     mismatches: 0,
   });

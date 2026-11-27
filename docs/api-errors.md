@@ -1,5 +1,15 @@
 # Application HTTP error codes
 
+Account/Business settings additions use the same error envelope and existing
+authorization policy. Missing or foreign FAQ rows return 404
+`BUSINESS_FAQ_NOT_FOUND`. Store logo validation uses 400 `BUSINESS_LOGO_INVALID`,
+413 `BUSINESS_LOGO_TOO_LARGE` (above 10,000,000 bytes), and 503
+`BUSINESS_LOGO_UNAVAILABLE`. Authenticated password changes reuse 401
+`INVALID_CREDENTIALS`, 400 `VALIDATION_ERROR`, rate-limit codes/Retry-After and
+sanitized 500 `INTERNAL_SERVER_ERROR`; successful changes revoke every session.
+See [Business additions](business-api.md#policies-faqs-and-store-logo-2026-11-27-implementation)
+and [Account additions](auth-api.md#account-screen-additions-2026-11-27).
+
 Codes are assigned at their throw sites, never inferred from English messages.
 Mobile owns API error localization using these codes; backend messages remain
 English developer/debugging context. Do not add backend AR/EN error-message

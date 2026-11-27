@@ -24,6 +24,7 @@ const policies: Record<
   logout: { ip: 60, account: 30, seconds: 60 },
   forgotPassword: { ip: 10, account: 3, seconds: 900 },
   resetPassword: { ip: 10, account: 5, seconds: 900 },
+  changePassword: { ip: 10, account: 5, seconds: 900 },
 };
 @Injectable()
 export class AuthRateGuard implements CanActivate {
@@ -86,13 +87,15 @@ export class AuthRateGuard implements CanActivate {
     ];
     const body = request.body;
     const account =
-      typeof body?.email === 'string'
-        ? body.email.trim().toLowerCase().slice(0, 254)
-        : typeof body?.refreshToken === 'string'
-          ? body.refreshToken.slice(0, 128)
-          : typeof body?.token === 'string'
-            ? body.token.slice(0, 128)
-            : undefined;
+      action === 'changePassword' && request.user?.id
+        ? request.user.id
+        : typeof body?.email === 'string'
+          ? body.email.trim().toLowerCase().slice(0, 254)
+          : typeof body?.refreshToken === 'string'
+            ? body.refreshToken.slice(0, 128)
+            : typeof body?.token === 'string'
+              ? body.token.slice(0, 128)
+              : undefined;
     if (account)
       rules.push({
         key: hash(`${action}:account:${account}`),

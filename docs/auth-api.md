@@ -1,5 +1,45 @@
 # Authentication and multi-business ownership
 
+## Account screen additions (2026-11-27)
+
+Requires migration `20261127000000_add_business_policies_and_account_profile`.
+No migration has been applied to a deployed database by this implementation.
+User photos and email editing are intentionally unsupported.
+
+`GET /auth/me` adds nullable `name` while retaining id/email/businesses. Mobile
+must retrieve accessible Businesses from the server after login; a locally stored
+Business UUID is not a substitute for that ownership lookup.
+
+`PATCH /auth/me`, authenticated Bearer, accepts only `{ "name": "شروق" }`.
+Name is trimmed, nonblank, 1–200 characters. Returns 200 `{ id, email, name }`.
+No userId, email, image, role or Business identity is accepted from the body.
+
+`POST /auth/change-password`, authenticated Bearer, accepts:
+
+```json
+{
+  "currentPassword": "your current password",
+  "newPassword": "a different strong password"
+}
+```
+
+New passwords use the existing registration policy: 12–128 UTF-16 code units,
+at least one ASCII lowercase letter, uppercase letter and digit. Passwords are
+never trimmed. Current password is Argon2-verified; unchanged new passwords are
+rejected. The user row is locked and current password/version/session rechecked
+before committing. Password hashing uses the existing bounded worker policy.
+The password hash, authVersion increment, revocation of ALL sessions (including
+this device), and removal of outstanding reset codes commit atomically.
+
+Success is 204 with no body. Mobile must clear its sessions/cache and return to
+Login; old access and refresh tokens are invalid. Wrong current password or a
+concurrent password/session change returns 401 `INVALID_CREDENTIALS`; invalid or
+unchanged new password returns 400 `VALIDATION_ERROR`. Rate limits: 5 attempts per
+authenticated account and 10 per observed IP per 15 minutes, using the existing
+trusted-proxy policy, stable errors and Retry-After. A transaction failure returns
+a sanitized 500 without exposing hashes or credentials. Forgotten-password email
+OTP remains a separate flow, not a substitute for the authenticated change flow.
+
 All previous owner-facing Android requests now require
 `Authorization: Bearer <access_token>`, including Business creation, profile,
 settings, working hours, Categories, Products, Variants, Inventory and

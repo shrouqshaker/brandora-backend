@@ -6,34 +6,43 @@ that Prisma cannot represent. There are 20 models and 19 committed migrations
 at the 2026-11-25 baseline. These counts do not establish any deployed database's
 applied history or compatibility.
 
+The 2026-11-27 implementation adds two models (BusinessFaq and BusinessLogoCleanup)
+and one additive migration for owner policies, the store logo and User.name.
+That is 22 source models and 20 migration directories including the new
+migration, not evidence of deployed schema changes. User photos are not added.
+Business logo cleanup keeps provider identities internal. Delivery fee has a
+nonnegative database CHECK; FAQ position has a nonnegative CHECK.
+
 ## Models
 
 UUID primary keys are used except where a parent identity is the primary key.
 Tenant-owned rows carry businessId; scoped relations use composite tenant keys
 where shown in the schema. Deletes generally restrict rather than cascade.
 
-| Model              | Purpose, keys and relationships                                                                                                        |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Business           | Tenant root for memberships, catalog, imports, stock, customers, chats, number linkage and orders.                                     |
-| User               | Unique normalized email, password hash and authVersion; has memberships, sessions and an optional reset token.                         |
-| BusinessMember     | User/Business join; unique `(userId, businessId)`; role is OWNER with an independent isActive flag.                                    |
-| AuthSession        | User FK; unique tokenFamilyId and refreshTokenHash; bounded rotation history, fixed expiry and revocation.                             |
-| PasswordResetToken | userId is PK/FK; one current reset record per User; unique HMAC tokenHash, expiry, consumption and delivery state.                     |
-| AuthRateBucket     | Independent hashed rate-limit key, unique key and expiry index; no User or Business FK.                                                |
-| BusinessSettings   | businessId is PK/FK; zero or one preferences row per Business.                                                                         |
-| WorkingHour        | Business FK; unique `(businessId, dayOfWeek)`; seven-day completeness is an API rule, not the relation cardinality.                    |
-| Category           | Business FK and unique `(businessId, id)` tenant key; normalized-name uniqueness is SQL-only.                                          |
-| Product            | Business FK; optional scoped Category FK; nullable externalKey unique within Business; JSON options/attributes and nullable basePrice. |
-| ProductVariant     | Business and scoped Product FKs; SKU unique within Business; optionValues unique within Product; owns stock.                           |
-| ProductImage       | Scoped Product FK; unique publicId; lifecycle/provider metadata and ordered gallery position. No direct Variant relation.              |
-| InventoryMovement  | Business, scoped Product and scoped Variant FKs; quantity/tracking snapshots and operation references.                                 |
-| ImportJob          | Business FK; workbook metadata, lifecycle, counters, saved mapping and internal failure information.                                   |
-| Customer           | Business FK; unique `(businessId, phone)` and tenant key `(businessId, id)`.                                                           |
-| Conversation       | Business and scoped Customer FKs; unique `(businessId, customerId, channel)`; AI/handoff and forward-only message times.               |
-| Message            | Business and scoped Conversation FKs; unique nullable externalMessageId/replyToMessageId; delivery and recovery metadata.              |
-| WhatsAppConnection | Unique Business FK and unique phoneNumberId; one optional number link per Business and one Business per number.                        |
-| Order              | Business, scoped Customer and scoped Conversation FKs; unique sourceMessageId; price/status snapshots and scoped tenant key.           |
-| OrderItem          | Scoped Order FK; unique `(orderId, position)`; copied product/options/price/quantity values.                                           |
+| Model               | Purpose, keys and relationships                                                                                                        |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Business            | Tenant root for memberships, catalog, imports, stock, customers, chats, number linkage and orders.                                     |
+| User                | Unique normalized email, password hash and authVersion; has memberships, sessions and an optional reset token.                         |
+| BusinessMember      | User/Business join; unique `(userId, businessId)`; role is OWNER with an independent isActive flag.                                    |
+| AuthSession         | User FK; unique tokenFamilyId and refreshTokenHash; bounded rotation history, fixed expiry and revocation.                             |
+| PasswordResetToken  | userId is PK/FK; one current reset record per User; unique HMAC tokenHash, expiry, consumption and delivery state.                     |
+| AuthRateBucket      | Independent hashed rate-limit key, unique key and expiry index; no User or Business FK.                                                |
+| BusinessSettings    | businessId is PK/FK; zero or one preferences row per Business.                                                                         |
+| BusinessFaq         | Scoped owner question/answer with active flag and stable position/UUID ordering.                                                       |
+| BusinessLogoCleanup | Internal provider cleanup identity and lifecycle; Business FK; never exposed to clients.                                               |
+| WorkingHour         | Business FK; unique `(businessId, dayOfWeek)`; seven-day completeness is an API rule, not the relation cardinality.                    |
+| Category            | Business FK and unique `(businessId, id)` tenant key; normalized-name uniqueness is SQL-only.                                          |
+| Product             | Business FK; optional scoped Category FK; nullable externalKey unique within Business; JSON options/attributes and nullable basePrice. |
+| ProductVariant      | Business and scoped Product FKs; SKU unique within Business; optionValues unique within Product; owns stock.                           |
+| ProductImage        | Scoped Product FK; unique publicId; lifecycle/provider metadata and ordered gallery position. No direct Variant relation.              |
+| InventoryMovement   | Business, scoped Product and scoped Variant FKs; quantity/tracking snapshots and operation references.                                 |
+| ImportJob           | Business FK; workbook metadata, lifecycle, counters, saved mapping and internal failure information.                                   |
+| Customer            | Business FK; unique `(businessId, phone)` and tenant key `(businessId, id)`.                                                           |
+| Conversation        | Business and scoped Customer FKs; unique `(businessId, customerId, channel)`; AI/handoff and forward-only message times.               |
+| Message             | Business and scoped Conversation FKs; unique nullable externalMessageId/replyToMessageId; delivery and recovery metadata.              |
+| WhatsAppConnection  | Unique Business FK and unique phoneNumberId; one optional number link per Business and one Business per number.                        |
+| Order               | Business, scoped Customer and scoped Conversation FKs; unique sourceMessageId; price/status snapshots and scoped tenant key.           |
+| OrderItem           | Scoped Order FK; unique `(orderId, position)`; copied product/options/price/quantity values.                                           |
 
 ## Entity relationships
 
@@ -44,6 +53,8 @@ erDiagram
     User ||--o{ AuthSession : sessions
     User ||--o| PasswordResetToken : recovery
     Business ||--o| BusinessSettings : preferences
+    Business ||--o{ BusinessFaq : faqs
+    Business ||--o{ BusinessLogoCleanup : logo_cleanup
     Business ||--o{ WorkingHour : schedule
     Business ||--o{ Category : categories
     Business ||--o{ Product : products

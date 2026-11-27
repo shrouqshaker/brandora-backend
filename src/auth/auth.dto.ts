@@ -4,6 +4,7 @@ import {
   IsString,
   Matches,
   MaxLength,
+  MinLength,
   Length,
   ValidateBy,
 } from 'class-validator';
@@ -73,3 +74,24 @@ export class ResetPasswordDto extends ForgotPasswordDto {
   newPassword!: string;
 }
 export class EmptyAuthDto {}
+
+export class UpdateAccountDto {
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  name!: string;
+}
+
+export class ChangePasswordDto {
+  @IsString()
+  @PasswordLength(1)
+  currentPassword!: string;
+
+  @IsString()
+  @PasswordLength(12)
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])[\s\S]+$/)
+  newPassword!: string;
+}
